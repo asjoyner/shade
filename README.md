@@ -1,9 +1,7 @@
 # shade
----
 shade (the SHA Drive Engine) stores files in the cloud, in a flexible fashion, optionally encrypted.
 
 ## The basic method of file storage is:
----
   1. Represent the file as a series of chunks, of a configurable size (16MB by default).
   1. Calculate a SHA-256 hash for each chunk.
   1. Optionally, generate a unique AES-128 key for the file and encrypt each chunk with it.
@@ -22,7 +20,6 @@ NB: Encrypting the contents stored in Drive comes with two penalties:
   1. The chunks of identical files will not be deduplicated.
 
 ## Retrieving a file works much the same, just in reverse:
----
   1. Download all of the manifest files.
   1. If necessary, decrypt the manifest files.
   1. Find the filename which matches the request.
