@@ -1,0 +1,12 @@
+[
+  {"Provider": "amazon",
+   "OAuth": {
+     "ID": "12345",
+     "Secret": "abcde",
+     "Scope": "readonly"
+   },
+   "FileParentId": "1",
+   "ChunkParentId": "2",
+   "Write": false
+  }
+]

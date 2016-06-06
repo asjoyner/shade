@@ -16,3 +16,17 @@ type Client interface {
 	// PutChunk writes a chunk and returns its SHA-256 sum
 	PutChunk(sha256 []byte, chunk []byte) ([]byte, error)
 }
+
+type Config struct {
+	Provider      string
+	OAuth         OAuthConfig
+	FileParentId  string
+	ChunkParentId string
+	Write         bool
+}
+
+type OAuthConfig struct {
+	ID     string
+	Secret string
+	Scope  string
+}
