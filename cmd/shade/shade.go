@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/config"
@@ -30,6 +31,9 @@ func main() {
 			c, err = amazon.NewClient(conf)
 		case "google":
 			c, err = google.NewClient(conf)
+		default:
+			fmt.Printf("Unsupported provider in config: %s\n", conf.Provider)
+			os.Exit(1)
 		}
 		if err != nil {
 			fmt.Printf("could not initialize %s drive client: %s", conf.Provider, err)
