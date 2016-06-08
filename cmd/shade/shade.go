@@ -7,44 +7,22 @@ import (
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/config"
-	"github.com/asjoyner/shade/drive"
-	"github.com/asjoyner/shade/drive/amazon"
-	"github.com/asjoyner/shade/drive/google"
 )
 
 func main() {
 	// TODO(asjoyner): setup fuse FS
 
 	// read in the config
-	configs, err := config.Read()
+	clients, err := config.Clients()
 	if err != nil {
-		fmt.Printf("could not parse config: %s", err)
-	}
-
-	// initialize drive client(s)
-	var clients []drive.Client
-	for _, conf := range configs {
-		var c drive.Client
-		var err error
-		switch conf.Provider {
-		case "amazon":
-			c, err = amazon.NewClient(conf)
-		case "google":
-			c, err = google.NewClient(conf)
-		default:
-			fmt.Printf("Unsupported provider in config: %s\n", conf.Provider)
-			os.Exit(1)
-		}
-		if err != nil {
-			fmt.Printf("could not initialize %s drive client: %s", conf.Provider, err)
-		}
-
-		clients = append(clients, c)
+		fmt.Printf("could not initialize clients: %s", err)
+		os.Exit(1)
 	}
 
 	// TODO(asjoyner): client.GetFiles()
-	// TODO(asjoyner): update the Fuse FS
+	fmt.Printf("%q", clients)
 
+	// TODO(asjoyner): update the Fuse FS
 	f := shade.File{}
 	f.Filename = "Hi"
 	return

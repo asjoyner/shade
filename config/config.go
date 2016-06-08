@@ -9,6 +9,8 @@ import (
 	"runtime"
 
 	"github.com/asjoyner/shade/drive"
+	"github.com/asjoyner/shade/drive/amazon"
+	"github.com/asjoyner/shade/drive/google"
 )
 
 // Read finds, reads, parses, and returns the config.
@@ -53,4 +55,32 @@ func configPath() string {
 		fmt.Printf("TODO: osUserCacheDir on GOOS %q", runtime.GOOS)
 	}
 	return path.Join(dir, "config.json")
+}
+
+func Clients() ([]drive.Client, error) {
+	configs, err := Read()
+	if err != nil {
+		fmt.Printf("could not parse config: %s", err)
+	}
+
+	// initialize the drive client(s)
+	var clients []drive.Client
+	for _, conf := range configs {
+		var c drive.Client
+		var err error
+		switch conf.Provider {
+		case "amazon":
+			c, err = amazon.NewClient(conf)
+		case "google":
+			c, err = google.NewClient(conf)
+		default:
+			return nil, fmt.Errorf("Unsupported provider in config: %s\n", conf.Provider)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("could not initialize %s drive client: %s", conf.Provider, err)
+		}
+
+		clients = append(clients, c)
+	}
+	return clients, nil
 }
