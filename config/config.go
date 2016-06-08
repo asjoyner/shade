@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"encoding/json"
@@ -11,8 +11,8 @@ import (
 	"github.com/asjoyner/shade/drive"
 )
 
-func ReadConfig() ([]drive.Config, error) {
-	filename := ConfigPath()
+func Read() ([]drive.Config, error) {
+	filename := configPath()
 	contents, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("ReadFile(%q): %s", filename, err)
@@ -25,7 +25,7 @@ func ReadConfig() ([]drive.Config, error) {
 	return configs, nil
 }
 
-func ConfigPath() string {
+func configPath() string {
 	dir := "."
 	switch runtime.GOOS {
 	case "darwin":

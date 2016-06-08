@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/asjoyner/shade"
+	"github.com/asjoyner/shade/config"
 	"github.com/asjoyner/shade/drive"
 	"github.com/asjoyner/shade/drive/amazon"
 	"github.com/asjoyner/shade/drive/google"
@@ -14,7 +15,7 @@ func main() {
 	// TODO(asjoyner): setup fuse FS
 
 	// read in the config
-	configs, err := ReadConfig()
+	configs, err := config.Read()
 	if err != nil {
 		fmt.Printf("could not parse config: %s", err)
 	}
