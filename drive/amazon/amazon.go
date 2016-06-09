@@ -1,12 +1,22 @@
 package amazon
 
-import "github.com/asjoyner/shade/drive"
+import (
+	"net/http"
+
+	"github.com/asjoyner/shade/drive"
+)
 
 func NewClient(c drive.Config) (drive.Client, error) {
-	return &AmazonCloudDrive{}, nil
+	client, err := getOAuthClient(c)
+	if err != nil {
+		return nil, err
+	}
+	return &AmazonCloudDrive{client: client}, nil
 }
 
-type AmazonCloudDrive struct{}
+type AmazonCloudDrive struct {
+	client *http.Client
+}
 
 // GetFiles retrieves all of the File objects known to the client.
 // The responses are marshalled JSON, which may be encrypted.

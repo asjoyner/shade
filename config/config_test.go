@@ -19,12 +19,15 @@ var parsedExample = []drive.Config{
 	{
 		Provider: "amazon",
 		OAuth: drive.OAuthConfig{
-			ID:     "12345",
-			Secret: "abcde",
-			Scope:  "readonly",
+			ClientID:     "12345",
+			ClientSecret: "abcde",
+			Scopes: []string{
+				"clouddrive:read_other clouddrive:write",
+			},
+			TokenPath: "/dev/null",
 		},
-		FileParentId:  "1",
-		ChunkParentId: "2",
+		FileParentID:  "1",
+		ChunkParentID: "2",
 		Write:         false,
 	},
 }

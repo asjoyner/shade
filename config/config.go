@@ -4,10 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"os"
 	"path"
-	"runtime"
 
+	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 	"github.com/asjoyner/shade/drive/amazon"
 	"github.com/asjoyner/shade/drive/google"
@@ -42,19 +41,9 @@ func parseConfig(contents []byte) ([]drive.Config, error) {
 	return configs, nil
 }
 
-// configPath identifies the correct path to the config on various operating
-// systems.
+// configPath returns the path of the JSON config file.
 func configPath() string {
-	dir := "."
-	switch runtime.GOOS {
-	case "darwin":
-		dir = path.Join(os.Getenv("HOME"), "Library", "Application Support", "shade")
-	case "linux", "freebsd":
-		dir = path.Join(os.Getenv("HOME"), ".shade")
-	default:
-		fmt.Printf("TODO: osUserCacheDir on GOOS %q", runtime.GOOS)
-	}
-	return path.Join(dir, "config.json")
+	return path.Join(shade.ConfigDir(), "config.json")
 }
 
 func Clients() ([]drive.Client, error) {
@@ -77,7 +66,7 @@ func Clients() ([]drive.Client, error) {
 			return nil, fmt.Errorf("Unsupported provider in config: %s\n", conf.Provider)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("could not initialize %s drive client: %s", conf.Provider, err)
+			return nil, fmt.Errorf("%s: %s", conf.Provider, err)
 		}
 
 		clients = append(clients, c)

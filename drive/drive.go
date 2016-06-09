@@ -20,13 +20,14 @@ type Client interface {
 type Config struct {
 	Provider      string
 	OAuth         OAuthConfig
-	FileParentId  string
-	ChunkParentId string
+	FileParentID  string
+	ChunkParentID string
 	Write         bool
 }
 
 type OAuthConfig struct {
-	ID     string
-	Secret string
-	Scope  string
+	ClientID     string
+	ClientSecret string
+	Scopes       []string
+	TokenPath    string
 }
