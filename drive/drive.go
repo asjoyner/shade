@@ -14,7 +14,7 @@ type Client interface {
 	GetChunk(sha256 []byte) ([]byte, error)
 
 	// PutChunk writes a chunk and returns its SHA-256 sum
-	PutChunk(sha256 []byte, chunk []byte) ([]byte, error)
+	PutChunk(sha256 []byte, chunk []byte) error
 }
 
 type Config struct {

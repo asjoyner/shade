@@ -11,11 +11,16 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &AmazonCloudDrive{client: client}, nil
+	ep, err := NewEndpoint(client) // endpoint.go
+	if err != nil {
+		return nil, err
+	}
+	return &AmazonCloudDrive{client: client, ep: ep}, nil
 }
 
 type AmazonCloudDrive struct {
 	client *http.Client
+	ep     *Endpoint
 }
 
 // GetFiles retrieves all of the File objects known to the client.
@@ -36,6 +41,7 @@ func (s *AmazonCloudDrive) GetChunk(sha256 []byte) ([]byte, error) {
 }
 
 // PutChunk writes a chunk and returns its SHA-256 sum
-func (s *AmazonCloudDrive) PutChunk(sha256 []byte, chunk []byte) ([]byte, error) {
-	return nil, nil
+func (s *AmazonCloudDrive) PutChunk(sha256 []byte, chunk []byte) error {
+	//s.client.Post(...bytes.NewReader(chunk)
+	return nil
 }

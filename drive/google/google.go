@@ -26,6 +26,6 @@ func (s *GoogleDrive) GetChunk(sha256 []byte) ([]byte, error) {
 }
 
 // PutChunk writes a chunk and returns its SHA-256 sum
-func (s *GoogleDrive) PutChunk(sha256 []byte, chunk []byte) ([]byte, error) {
-	return nil, nil
+func (s *GoogleDrive) PutChunk(sha256 []byte, chunk []byte) error {
+	return nil
 }
