@@ -42,9 +42,9 @@ func (s *AmazonCloudDrive) PutFile(f []byte) error {
 	a := sha256.Sum256(f)
 	filename := fmt.Sprintf("%x", a[:])
 	metadata := map[string]interface{}{
-		"kind":  "FILE",
-		"name":  filename,
-		"label": "shadeFile",
+		"kind":   "FILE",
+		"name":   filename,
+		"labels": []string{"shadeFile"},
 		// "properties": ... shade version id?
 	}
 	if s.config.FileParentID != "" {
@@ -65,9 +65,9 @@ func (s *AmazonCloudDrive) GetChunk(sha256 []byte) ([]byte, error) {
 func (s *AmazonCloudDrive) PutChunk(sha256 []byte, chunk []byte) error {
 	filename := fmt.Sprintf("%x", sha256)
 	metadata := map[string]interface{}{
-		"kind":  "FILE",
-		"name":  filename,
-		"label": "shadeChunk",
+		"kind":   "FILE",
+		"name":   filename,
+		"labels": []string{"shadeChunk"},
 		// "properties": ... shade version id?  manifest back reference?
 	}
 	if s.config.ChunkParentID != "" {
@@ -85,7 +85,7 @@ func (s *AmazonCloudDrive) uploadFile(filename string, chunk []byte, metadata in
 	if err != nil {
 		return err
 	}
-	url := s.ep.ContentURL() + "/nodes?suppress=deduplication"
+	url := s.ep.ContentURL() + "nodes"
 	req, err := http.NewRequest("POST", url, body)
 	if err != nil {
 		return err
@@ -118,6 +118,14 @@ func (s *AmazonCloudDrive) uploadFile(filename string, chunk []byte, metadata in
 func mimeEncode(filename string, data []byte, metadata interface{}) (io.Reader, string, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
+
+	// Order matters: metadata must come before content in the MIME content
+	m, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, "", err
+	}
+	_ = writer.WriteField("metadata", string(m))
+
 	part, err := writer.CreateFormFile("content", filename)
 	if err != nil {
 		return nil, "", err
@@ -126,11 +134,6 @@ func mimeEncode(filename string, data []byte, metadata interface{}) (io.Reader, 
 		return nil, "", err
 	}
 
-	m, err := json.Marshal(metadata)
-	if err != nil {
-		return nil, "", err
-	}
-	_ = writer.WriteField("metadata", string(m))
 	err = writer.Close()
 	if err != nil {
 		return nil, "", err
