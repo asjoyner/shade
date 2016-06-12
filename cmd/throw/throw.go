@@ -3,6 +3,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -31,7 +32,7 @@ func main() {
 	// read in the config
 	clients, err := config.Clients()
 	if err != nil {
-		fmt.Printf("could not initialize clients: %s", err)
+		fmt.Fprintf(os.Stderr, "could not initialize clients: %s\n", err)
 		os.Exit(1)
 	}
 
@@ -46,7 +47,7 @@ func main() {
 
 	fh, err := os.Open(filename)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s", err)
+		fmt.Fprintf(os.Stderr, "%s\n", err)
 		os.Exit(3)
 	}
 
@@ -58,7 +59,7 @@ func main() {
 		if err == io.EOF {
 			break
 		} else if err != nil {
-			fmt.Fprintf(os.Stderr, "%s", err)
+			fmt.Fprintf(os.Stderr, "%s\n", err)
 			os.Exit(3)
 		}
 		manifest.Filesize += int64(len)
@@ -68,22 +69,31 @@ func main() {
 
 		// upload the chunk
 		for _, c := range clients {
-			c.PutChunk(chunk.Sha256, chunkbytes)
+			err := c.PutChunk(chunk.Sha256, chunkbytes)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "chunk upload failed: %s\n", err)
+				os.Exit(1)
+			}
 		}
 
 		manifest.Chunks = append(manifest.Chunks, chunk)
 		chunk.Index += 1
 	}
 
-	// TODO(asjoyner): optionally, encrypt manifest
+	jm, err := json.Marshal(manifest)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not marshal file manifest: %s\n", err)
+		os.Exit(1)
+	}
+	// TODO(asjoyner): optionally, encrypt the manifest
 	// upload the manifest
 	for _, c := range clients {
-		c.PutFile("")
+		err := c.PutFile(jm)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "manifest upload failed: %s\n", err)
+			os.Exit(1)
+		}
 	}
 
-	// TODO(asjoyner): encrypt manifest
-
-	f := shade.File{}
-	f.Filename = "Hi"
 	return
 }
