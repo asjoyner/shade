@@ -3,6 +3,7 @@ package amazon
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -40,7 +41,7 @@ func (s *AmazonCloudDrive) GetFiles() ([]byte, error) {
 func (s *AmazonCloudDrive) PutFile(f []byte) error {
 	a := sha256.Sum256(f)
 	filename := fmt.Sprintf("%x", a[:])
-	metadata := map[string]string{
+	metadata := map[string]interface{}{
 		"kind":  "FILE",
 		"name":  filename,
 		"label": "shadeFile",
@@ -63,7 +64,7 @@ func (s *AmazonCloudDrive) GetChunk(sha256 []byte) ([]byte, error) {
 // PutChunk writes a chunk and returns its SHA-256 sum
 func (s *AmazonCloudDrive) PutChunk(sha256 []byte, chunk []byte) error {
 	filename := fmt.Sprintf("%x", sha256)
-	metadata := map[string]string{
+	metadata := map[string]interface{}{
 		"kind":  "FILE",
 		"name":  filename,
 		"label": "shadeChunk",
@@ -79,7 +80,7 @@ func (s *AmazonCloudDrive) PutChunk(sha256 []byte, chunk []byte) error {
 }
 
 // uploadFile pushes the file with the associated metadata describing it
-func (s *AmazonCloudDrive) uploadFile(filename string, chunk []byte, metadata map[string]string) error {
+func (s *AmazonCloudDrive) uploadFile(filename string, chunk []byte, metadata interface{}) error {
 	body, ctype, err := mimeEncode(filename, chunk, metadata)
 	if err != nil {
 		return err
@@ -111,7 +112,10 @@ func (s *AmazonCloudDrive) uploadFile(filename string, chunk []byte, metadata ma
 // It returns the body as an io.Writer and the matching content-type header, or
 // an error.  content-type has to be calculated by the multipart.Writer object
 // because it contains the magic string "border" which separates mime parts.
-func mimeEncode(filename string, data []byte, metadata map[string]string) (io.Reader, string, error) {
+//
+// For format details, see the sample request here:
+// https://developer.amazon.com/public/apis/experience/cloud-drive/content/nodes
+func mimeEncode(filename string, data []byte, metadata interface{}) (io.Reader, string, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 	part, err := writer.CreateFormFile("content", filename)
@@ -122,9 +126,11 @@ func mimeEncode(filename string, data []byte, metadata map[string]string) (io.Re
 		return nil, "", err
 	}
 
-	for key, val := range metadata {
-		_ = writer.WriteField(key, val)
+	m, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, "", err
 	}
+	_ = writer.WriteField("metadata", string(m))
 	err = writer.Close()
 	if err != nil {
 		return nil, "", err
