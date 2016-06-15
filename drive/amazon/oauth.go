@@ -14,10 +14,18 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// NB: CloudDrive scopes must be space separated in a single parameter, not separate parameters.
+// https://developer.amazon.com/public/apis/experience/cloud-drive/content/restful-api-getting-started
+//
+// If you request a scope which is "less" than what your security profile is
+// authorized for, eg. "read_other" instead of "read_all" if you're authorized
+// to read videos and images, you'll get an "invalid scope" error, with the
+// description "An unknown scope was requested":
+// error_description=An+unknown+scope+was+requested&error=invalid_scope
 const (
-	clientID     string = "amzn1.application-oa2-client.abb62fdbdc574d3b84cc84b5211ce6af"
-	clientSecret string = "56b4f6116d98b0570ac174fe5051b55149d06221aec0a5b5508f298aca927b6c"
-	scope        string = "clouddrive:read_document coulddrive:write"
+	clientID     string = "amzn1.application-oa2-client.57c4963ae1fd42f289662bac7c6b2038"
+	clientSecret string = "99569a3c89f020e1493114d953012755db01c1a3f57fbc0d4f40f1a6f0873e68"
+	scope        string = "clouddrive:read_all clouddrive:write"
 	authURL      string = "https://www.amazon.com/ap/oa"
 	tokenURL     string = "https://api.amazon.com/auth/o2/token"
 	redirectURI  string = "https://localhost"
@@ -28,8 +36,7 @@ func getOAuthClient(c drive.Config) (*http.Client, error) {
 	conf := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		// NB: CloudDrive scopes must be space separated in a single parameter, not separate parameters!
-		Scopes: []string{scope},
+		Scopes:       []string{scope},
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  authURL,
 			TokenURL: tokenURL,
