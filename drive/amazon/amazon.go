@@ -84,12 +84,12 @@ func (s *AmazonCloudDrive) GetFiles() ([][]byte, error) {
 
 	// Next, get the contents of the fileIDs.
 	fileContents := make([][]byte, len(fileIDs))
-	for _, id := range fileIDs {
+	for i, id := range fileIDs {
 		c, err := s.getFileContents(id)
 		if err != nil {
 			return nil, err
 		}
-		fileContents = append(fileContents, c)
+		fileContents[i] = c
 	}
 
 	return fileContents, nil
@@ -257,7 +257,6 @@ func (s *AmazonCloudDrive) getMetadata(v url.Values) (getFilesResponse, error) {
 // https://developer.amazon.com/public/apis/experience/cloud-drive/content/nodes
 func (s *AmazonCloudDrive) getFileContents(id string) ([]byte, error) {
 	url := fmt.Sprintf("%snodes/%s/content", s.ep.ContentURL(), id)
-	fmt.Printf("Fetching: %s\n", url)
 	resp, err := s.client.Get(url)
 	if err != nil {
 		return nil, err
