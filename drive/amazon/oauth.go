@@ -17,7 +17,7 @@ import (
 const (
 	clientID     string = "amzn1.application-oa2-client.abb62fdbdc574d3b84cc84b5211ce6af"
 	clientSecret string = "56b4f6116d98b0570ac174fe5051b55149d06221aec0a5b5508f298aca927b6c"
-	scope        string = "clouddrive:read_other clouddrive:write"
+	scope        string = "clouddrive:read_document coulddrive:write"
 	authURL      string = "https://www.amazon.com/ap/oa"
 	tokenURL     string = "https://api.amazon.com/auth/o2/token"
 	redirectURI  string = "https://localhost"

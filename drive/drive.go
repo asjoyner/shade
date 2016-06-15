@@ -4,7 +4,7 @@ package drive
 type Client interface {
 	// GetFiles retrieves all of the File objects known to the client.
 	// The responses are marshalled JSON, which may be encrypted.
-	GetFiles() ([]byte, error)
+	GetFiles() ([][]byte, error)
 
 	// PutFile writes the metadata describing a new file.
 	// f should be marshalled JSON, and may be encrypted.

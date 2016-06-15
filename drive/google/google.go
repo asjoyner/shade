@@ -10,7 +10,7 @@ type GoogleDrive struct{}
 
 // GetFiles retrieves all of the File objects known to the client.
 // The responses are marshalled JSON, which may be encrypted.
-func (s *GoogleDrive) GetFiles() ([]byte, error) {
+func (s *GoogleDrive) GetFiles() ([][]byte, error) {
 	return nil, nil
 }
 
