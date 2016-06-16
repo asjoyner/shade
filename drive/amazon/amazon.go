@@ -61,7 +61,7 @@ func (s *AmazonCloudDrive) GetFiles() ([][]byte, error) {
 
 	v := url.Values{}
 	v.Set("filters", filters)
-	// TODO(asjoyner): sort modifiedDate:DESC and stop on last seen mtime?
+	// TODO(asjoyner): sort modifiedDate:DESC and stop on last seen time?
 	//v.Set("sort", `["modifiedDate DESC"]`)
 
 	var nextToken string

@@ -36,11 +36,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	filename := flag.Arg(1)
-	// TODO(asjoyner): stat file
+	filename := flag.Arg(0)
 
 	manifest := shade.File{
-		Filename:  flag.Arg(2),
+		Filename:  flag.Arg(1),
 		Chunksize: *chunksize,
 	}
 	// TODO(asjoyner): generate AES key
@@ -63,6 +62,12 @@ func main() {
 			os.Exit(3)
 		}
 		manifest.Filesize += int64(len)
+
+		// truncate the chunkbytes array on the last read
+		if len < *chunksize {
+			chunkbytes = chunkbytes[:len]
+		}
+
 		// TODO(asjoyner): optionally, encrypt bytes
 		a := sha256.Sum256(chunkbytes)
 		chunk.Sha256 = a[:]

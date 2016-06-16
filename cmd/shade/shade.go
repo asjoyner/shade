@@ -27,9 +27,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "could not get files: %s\n", err)
 			os.Exit(1)
 		}
-		for _, fj := range newFiles {
+		for _, fileJSON := range newFiles {
 			file := &shade.File{}
-			err := json.Unmarshal(fj, file)
+			err := json.Unmarshal(fileJSON, file)
 			if err != nil {
 				fmt.Printf("failed to unmarshal: %s\n", err)
 				continue
@@ -39,7 +39,7 @@ func main() {
 		}
 	}
 	for id, f := range files {
-		fmt.Printf("%s: %s", id, f)
+		fmt.Printf("%s: %s\n", id, f)
 	}
 
 	return

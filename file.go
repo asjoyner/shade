@@ -16,13 +16,20 @@ type Chunk struct {
 }
 
 func (f *File) String() string {
-	out := fmt.Sprintf("{Filename: %s, Filesize: %d, Chunksize: %d,", f.Filename, f.Filesize, f.Chunksize)
-	sep := ",\n"
+	out := fmt.Sprintf("{Filename: %s, Filesize: %d, Chunksize: %d, AesKey: %s, Chunks:", f.Filename, f.Filesize, f.Chunksize)
+	sep := ", "
 	if len(f.Chunks) < 2 {
-		sep = ", "
+		out += " "
+	} else {
+		out += "\n"
+		sep = ",\n"
 	}
-	for _, c := range f.Chunks {
-		out += c.String() + sep
+	for i, c := range f.Chunks {
+		if i == len(f.Chunks) {
+			out += c.String() + sep
+		} else {
+			out += c.String()
+		}
 	}
 	return out
 }
