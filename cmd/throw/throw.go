@@ -93,7 +93,8 @@ func main() {
 	// TODO(asjoyner): optionally, encrypt the manifest
 	// upload the manifest
 	for _, c := range clients {
-		err := c.PutFile(jm)
+		a := sha256.Sum256(f)
+		err := c.PutFile(a[:], jm)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "manifest upload failed: %s\n", err)
 			os.Exit(1)

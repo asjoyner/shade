@@ -17,7 +17,7 @@ func ConfigDir() string {
 	case "linux", "freebsd":
 		dir = path.Join(os.Getenv("HOME"), ".shade")
 	default:
-		fmt.Printf("TODO: osUserCacheDir on GOOS %q", runtime.GOOS)
+		fmt.Printf("TODO: ConfigDir on GOOS %q", runtime.GOOS)
 	}
 	return dir
 }

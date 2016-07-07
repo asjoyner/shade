@@ -8,15 +8,22 @@ func NewClient(c drive.Config) (drive.Client, error) {
 
 type GoogleDrive struct{}
 
+// ListFiles retrieves all of the File objects known to the client.  The return
+// maps from arbitrary unique keys to the sha256sum of the file object.  The
+// keys may be passed to GetFile() to retrieve the corresponding shade.File.
+func (s *GoogleDrive) ListFiles() (map[string][]byte, error) {
+	return nil, nil
+}
+
 // GetFiles retrieves all of the File objects known to the client.
 // The responses are marshalled JSON, which may be encrypted.
-func (s *GoogleDrive) GetFiles() ([][]byte, error) {
+func (s *GoogleDrive) GetFile(fileID string) ([]byte, error) {
 	return nil, nil
 }
 
 // PutFile writes the metadata describing a new file.
 // f should be marshalled JSON, and may be encrypted.
-func (s *GoogleDrive) PutFile(f []byte) error {
+func (s *GoogleDrive) PutFile(sha256, f []byte) error {
 	return nil
 }
 

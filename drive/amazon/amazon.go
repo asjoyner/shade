@@ -2,7 +2,7 @@ package amazon
 
 import (
 	"bytes"
-	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -49,11 +49,12 @@ type AmazonCloudDrive struct {
 	config drive.Config
 }
 
-// GetFiles retrieves all of the File objects known to the client.
-// The responses are marshalled JSON, which may be encrypted.
-func (s *AmazonCloudDrive) GetFiles() ([][]byte, error) {
-	// First, get a list of the ID(s) of the shade.File(s) in CloudDrive
-	var fileIDs []string
+// ListFiles retrieves all of the File objects known to the client.  The return
+// maps from arbitrary unique keys to the sha256sum of the file object.  The
+// keys may be passed to GetFile() to retrieve the corresponding shade.File.
+func (s *AmazonCloudDrive) ListFiles() (map[string][]byte, error) {
+	// a list mapping the ID(s) of the shade.File(s) in CloudDrive to sha256sum
+	fileIDs := make(map[string][]byte)
 	filters := "kind:FILE AND labels:shadeFile"
 	if s.config.FileParentID != "" {
 		filters += " AND parents:s.config.FileParentID"
@@ -74,32 +75,34 @@ func (s *AmazonCloudDrive) GetFiles() ([][]byte, error) {
 			return nil, err
 		}
 		for _, f := range gfResp.Data {
-			fileIDs = append(fileIDs, f.ID)
+			b, err := hex.DecodeString(f.Name)
+			if err != nil {
+				fmt.Printf("Shade file %q with invalid hex in filename: %s\n", f.Name, err)
+			}
+			fileIDs[f.ID] = b
 		}
 		if gfResp.NextToken == "" {
 			break
 		}
 		nextToken = gfResp.NextToken
 	}
+	return fileIDs, nil
+}
 
-	// Next, get the contents of the fileIDs.
-	fileContents := make([][]byte, len(fileIDs))
-	for i, id := range fileIDs {
-		c, err := s.getFileContents(id)
-		if err != nil {
-			return nil, err
-		}
-		fileContents[i] = c
+// GetFile retrieves the File described by the ID.
+// The responses are marshalled JSON, which may be encrypted.
+func (s *AmazonCloudDrive) GetFile(fileID string) ([]byte, error) {
+	c, err := s.getFileContents(fileID)
+	if err != nil {
+		return nil, err
 	}
-
-	return fileContents, nil
+	return c, nil
 }
 
 // PutFile writes the manifest describing a new file.
 // f should be marshalled JSON, and may be encrypted.
-func (s *AmazonCloudDrive) PutFile(f []byte) error {
-	a := sha256.Sum256(f)
-	filename := fmt.Sprintf("%x", a[:])
+func (s *AmazonCloudDrive) PutFile(sha256sum, contents []byte) error {
+	filename := hex.EncodeToString(sha256sum)
 	metadata := map[string]interface{}{
 		"kind":   "FILE",
 		"name":   filename,
@@ -109,17 +112,17 @@ func (s *AmazonCloudDrive) PutFile(f []byte) error {
 	if s.config.FileParentID != "" {
 		metadata["parents"] = s.config.FileParentID
 	}
-	if err := s.uploadFile(filename, f, metadata); err != nil {
+	if err := s.uploadFile(filename, contents, metadata); err != nil {
 		return err
 	}
 	return nil
 }
 
 // GetChunk retrieves a chunk with a given SHA-256 sum
-func (s *AmazonCloudDrive) GetChunk(sha256 []byte) ([]byte, error) {
+func (s *AmazonCloudDrive) GetChunk(sha256sum []byte) ([]byte, error) {
 	// First, get the ID of the file with the named sha256 sum
 	// TODO(asjoyner): keep a cache of this mapping to reduce read latency?
-	filters := fmt.Sprintf("kind:FILE AND labels:shadeChunk AND name:%x", sha256)
+	filters := fmt.Sprintf("kind:FILE AND labels:shadeChunk AND name:%x", sha256sum)
 	if s.config.ChunkParentID != "" {
 		filters += " AND parents:s.config.ChunkParentID"
 	}
@@ -146,8 +149,8 @@ func (s *AmazonCloudDrive) GetChunk(sha256 []byte) ([]byte, error) {
 }
 
 // PutChunk writes a chunk and returns its SHA-256 sum
-func (s *AmazonCloudDrive) PutChunk(sha256 []byte, chunk []byte) error {
-	filename := fmt.Sprintf("%x", sha256)
+func (s *AmazonCloudDrive) PutChunk(sha256sum []byte, chunk []byte) error {
+	filename := hex.EncodeToString(sha256sum)
 	metadata := map[string]interface{}{
 		"kind":   "FILE",
 		"name":   filename,

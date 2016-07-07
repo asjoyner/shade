@@ -1,13 +1,17 @@
 package shade
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 type File struct {
-	Filename  string
-	Filesize  int64
-	Chunksize int
-	Chunks    []Chunk
-	AesKey    []byte
+	Filename     string
+	Filesize     int64
+	ModifiedTime time.Time
+	Chunksize    int
+	Chunks       []Chunk
+	AesKey       []byte
 }
 
 type Chunk struct {
