@@ -44,6 +44,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to mount: %s", err)
 	}
+	fmt.Printf("Mounting Shade FuseFS at %s...\n", flag.Arg(0))
 
 	if err := serviceFuse(conn, clients); err != nil {
 		log.Fatalf("failed to service mount: %s", err)
@@ -77,6 +78,7 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 	}
 	c, err := fuse.Mount(mountPoint, options...)
 	if err != nil {
+		fmt.Println("Is the mount point busy?")
 		return nil, err
 	}
 

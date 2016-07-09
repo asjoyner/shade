@@ -13,6 +13,15 @@ type inodeMap struct {
 	sync.RWMutex
 }
 
+func NewInodeMap() inodeMap {
+	return inodeMap{
+		inodes: map[uint64]string{
+			1: "/",
+		},
+		lastInode: 1,
+	}
+}
+
 func (im *inodeMap) ToPath(inode uint64) (string, error) {
 	im.RLock()
 	defer im.RUnlock()

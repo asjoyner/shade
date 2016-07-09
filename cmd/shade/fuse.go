@@ -45,6 +45,7 @@ type serveConn struct {
 func NewFuseServer(r *cache.Reader, uid, gid uint32, conn *fuse.Conn) *serveConn {
 	return &serveConn{
 		cache:   r,
+		inode:   NewInodeMap(),
 		uid:     uid,
 		gid:     gid,
 		writers: make(map[int]io.PipeWriter),
@@ -92,12 +93,12 @@ func (sc *serveConn) serve(req fuse.Request) {
 		req.Respond(&resp)
 
 	case *fuse.StatfsRequest:
-		req.Respond(
-			&fuse.StatfsResponse{
-				Files: uint64(sc.cache.NumNodes()),
-				Bsize: blockSize,
-			},
-		)
+		resp := &fuse.StatfsResponse{
+			Files: uint64(sc.cache.NumNodes()),
+			Bsize: blockSize,
+		}
+		fuse.Debug(resp)
+		req.Respond(resp)
 
 	case *fuse.GetattrRequest:
 		sc.getattr(req)
