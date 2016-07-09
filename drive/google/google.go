@@ -6,7 +6,9 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	return &GoogleDrive{}, nil
 }
 
-type GoogleDrive struct{}
+type GoogleDrive struct {
+	config drive.Config
+}
 
 // ListFiles retrieves all of the File objects known to the client.  The return
 // maps from arbitrary unique keys to the sha256sum of the file object.  The
@@ -35,4 +37,8 @@ func (s *GoogleDrive) GetChunk(sha256 []byte) ([]byte, error) {
 // PutChunk writes a chunk and returns its SHA-256 sum
 func (s *GoogleDrive) PutChunk(sha256 []byte, chunk []byte) error {
 	return nil
+}
+
+func (s *GoogleDrive) GetConfig() drive.Config {
+	return s.config
 }

@@ -21,6 +21,10 @@ type Client interface {
 
 	// PutChunk writes a chunk and returns its SHA-256 sum
 	PutChunk(sha256, chunk []byte) error
+
+	// GetConfig returns the drive.Config object used to initialize this client.
+	// This is mostly helpful for debugging, to identify which Provider it is.
+	GetConfig() Config
 }
 
 type Config struct {

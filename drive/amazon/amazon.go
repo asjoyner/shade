@@ -166,6 +166,10 @@ func (s *AmazonCloudDrive) PutChunk(sha256sum []byte, chunk []byte) error {
 	return nil
 }
 
+func (s *AmazonCloudDrive) GetConfig() drive.Config {
+	return s.config
+}
+
 // uploadFile pushes the file with the associated metadata describing it
 func (s *AmazonCloudDrive) uploadFile(filename string, chunk []byte, metadata interface{}) error {
 	body, ctype, err := mimeEncode(filename, chunk, metadata)
