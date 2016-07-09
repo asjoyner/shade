@@ -20,7 +20,7 @@ type Chunk struct {
 }
 
 func (f *File) String() string {
-	out := fmt.Sprintf("{Filename: %s, Filesize: %d, Chunksize: %d, AesKey: %s, Chunks:", f.Filename, f.Filesize, f.Chunksize)
+	out := fmt.Sprintf("{Filename: %q, Filesize: %d, Chunksize: %d, AesKey: %q, Chunks:", f.Filename, f.Filesize, f.Chunksize, f.AesKey)
 	sep := ", "
 	if len(f.Chunks) < 2 {
 		out += " "
