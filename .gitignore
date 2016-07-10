@@ -25,3 +25,8 @@ _testmain.go
 
 # vim swamp files
 .*.swp
+
+# binaries
+cmd/shade/shade
+cmd/shadeutil/shadeutil
+cmd/throw/throw
