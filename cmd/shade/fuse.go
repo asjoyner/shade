@@ -15,6 +15,7 @@ import (
 
 	"bazil.org/fuse"
 	_ "bazil.org/fuse/fs/fstestutil"
+	"bazil.org/fuse/fuseutil"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
@@ -233,40 +234,39 @@ func (sc *serveConn) lookup(req *fuse.LookupRequest) {
 }
 
 func (sc *serveConn) readDir(req *fuse.ReadRequest) {
-	return
-	// TODO(asjoyner): shadeify
-	/*
-		inode := uint64(req.Header.Node)
-		resp := &fuse.ReadResponse{make([]byte, 0, req.Size)}
-		var dirs []fuse.Dirent
-		file, err := sc.db.FileByInode(inode)
+	resp := &fuse.ReadResponse{make([]byte, 0, req.Size)}
+	n, err := sc.nodeByID(req.Header.Node)
+	if err != nil {
+		fuse.Debug(fmt.Sprintf("nodeByID(%d): %v", req.Header.Node, err))
+		req.RespondError(fuse.EIO)
+		return
+	}
+
+	var dirs []fuse.Dirent
+	for name, _ := range n.Children {
+		childPath := path.Join(n.Filename, name)
+		c, err := sc.cache.NodeByPath(childPath)
 		if err != nil {
-			fuse.Debug(fmt.Sprintf("FileByInode(%d): %v", inode, err))
+			fuse.Debug(fmt.Sprintf("child: NodeByPath(%v): %v", childPath, err))
 			req.RespondError(fuse.EIO)
 			return
 		}
+		childType := fuse.DT_File
+		if c.FileID == "" {
+			childType = fuse.DT_Dir
+		}
+		ci := sc.inode.FromPath(childPath)
+		dirs = append(dirs, fuse.Dirent{Inode: ci, Name: c.Filename, Type: childType})
+	}
+	fuse.Debug(fmt.Sprintf("%+v", dirs))
 
-		for _, inode := range file.Children {
-			f, err := sc.db.FileByInode(inode)
-			if err != nil {
-				fuse.Debug(fmt.Sprintf("child: FileByInode(%d): %v", inode, err))
-				req.RespondError(fuse.EIO)
-				return
-			}
-			childType := fuse.DT_File
-			if f.MimeType == driveFolderMimeType {
-				childType = fuse.DT_Dir
-			}
-			dirs = append(dirs, fuse.Dirent{Inode: f.Inode, Name: f.Title, Type: childType})
-		}
-		fuse.Debug(fmt.Sprintf("%+v", dirs))
-		var data []byte
-		for _, dir := range dirs {
-			data = fuse.AppendDirent(data, dir)
-		}
-		fuseutil.HandleRead(req, resp, data)
-		req.Respond(resp)
-	*/
+	var data []byte
+	for _, dir := range dirs {
+		data = fuse.AppendDirent(data, dir)
+	}
+	fuseutil.HandleRead(req, resp, data)
+	req.Respond(resp)
+	return
 }
 
 func (sc *serveConn) read(req *fuse.ReadRequest) {
@@ -321,42 +321,35 @@ func (sc *serveConn) attrFromNode(node cache.Node, i uint64) fuse.Attr {
 
 // Allocate a file handle, held by the kernel until Release
 func (sc *serveConn) open(req *fuse.OpenRequest) {
-	return
-	// TODO(asjoyner): shadeify
-	/*
-		// This will be cheap, Lookup always preceeds Open, so the cache is warm
-		f, err := sc.cache.NodeByPath(sc.inode.ToPath(uint64(req.Header.Node)))
-		if err != nil {
-			req.RespondError(fuse.ENOENT)
+	_, err := sc.nodeByID(req.Header.Node)
+	if err != nil {
+		req.RespondError(fuse.ENOENT)
+		return
+	}
+
+	var hId uint64
+	if !req.Flags.IsReadOnly() { // write access requested
+		if *readOnly {
+			// TODO: if allow_other, require uid == invoking uid to allow writes
+			req.RespondError(fuse.EPERM)
 			return
 		}
+	}
 
-		var hId uint64
-		if !req.Flags.IsReadOnly() { // write access requested
-			if *readOnly {
-				// TODO: if allow_other, require uid == invoking uid to allow writes
-				req.RespondError(fuse.EPERM)
-				return
-			}
+	// TODO(asjoyner): get the shade.File for the node, stuff it in the Handle
+	hId = sc.allocHandle(req.Header.Node, shade.File{})
 
-			r, w := io.Pipe() // plumbing between WriteRequest and Drive
-			go sc.updateInDrive(f.File, r)
-			hId = sc.allocHandle(req.Header.Node, f, w)
-		} else {
-			hId = sc.allocHandle(req.Header.Node, f, nil)
-		}
-
-		resp := fuse.OpenResponse{Handle: fuse.HandleID(hId)}
-		fuse.Debug(fmt.Sprintf("Open Response: %+v", resp))
-		req.Respond(&resp)
-	*/
+	resp := fuse.OpenResponse{Handle: fuse.HandleID(hId)}
+	fuse.Debug(fmt.Sprintf("Open Response: %+v", resp))
+	req.Respond(&resp)
+	return
 }
 
 // allocate a kernel file handle for the requested inode
-func (sc *serveConn) allocHandle(inode fuse.NodeID, w *io.PipeWriter) uint64 {
+func (sc *serveConn) allocHandle(inode fuse.NodeID, f shade.File) uint64 {
 	var hId uint64
 	var found bool
-	h := handle{inode: inode, writer: w}
+	h := handle{inode: inode, file: f}
 	sc.Lock()
 	defer sc.Unlock()
 	for i, ch := range sc.handles {
