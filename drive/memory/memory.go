@@ -1,3 +1,6 @@
+// memory is an in memory storage backend for Shade.
+//
+// It stores files and chunks transiently in RAM.
 package memory
 
 import (
@@ -36,8 +39,8 @@ func (s *MemoryDrive) ListFiles() (map[string][]byte, error) {
 	resp := make(map[string][]byte)
 	s.RLock()
 	defer s.RUnlock()
-	for i, f := range s.files {
-		resp[fmt.Sprintf("%d", i)] = f.sha256sum
+	for i, fws := range s.files {
+		resp[fmt.Sprintf("%d", i)] = fws.sha256sum
 	}
 	return resp, nil
 }
