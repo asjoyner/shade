@@ -10,6 +10,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,7 +57,7 @@ func NewFuseServer(r *cache.Reader, uid, gid uint32, conn *fuse.Conn) *serveConn
 
 type handle struct {
 	inode fuse.NodeID
-	file  shade.File
+	file  *shade.File
 	// TODO(asjoyner): track dirty chunks here?
 	writer   *io.PipeWriter
 	lastByte int64
@@ -217,14 +218,13 @@ func (sc *serveConn) lookup(req *fuse.LookupRequest) {
 		return
 	}
 	// Get the cache.Node for the child of that inode, if it exists
-	filename := path.Join(parentDir, req.Name)
+	filename := strings.TrimPrefix(path.Join(parentDir, req.Name), "/")
 	node, err := sc.cache.NodeByPath(filename)
 	if err != nil {
-		fuse.Debug(fmt.Sprintf("Lookup(%v in %v): ENOENT", req.Name, inode))
+		fuse.Debug(fmt.Sprintf("Lookup(%v in %v): ENOENT", filename, inode))
 		req.RespondError(fuse.ENOENT)
 		return
 	}
-	//if node.FileID != "" {  // it's a file
 	resp.Node = fuse.NodeID(sc.inode.FromPath(filename))
 	resp.EntryValid = *kernelRefresh
 	resp.Attr = sc.attrFromNode(node, inode)
@@ -244,21 +244,22 @@ func (sc *serveConn) readDir(req *fuse.ReadRequest) {
 
 	var dirs []fuse.Dirent
 	for name, _ := range n.Children {
-		childPath := path.Join(n.Filename, name)
+		childPath := strings.TrimPrefix(path.Join(n.Filename, name), "/")
 		c, err := sc.cache.NodeByPath(childPath)
+		fuse.Debug(fmt.Sprintf("Found child: %+v", c))
 		if err != nil {
 			fuse.Debug(fmt.Sprintf("child: NodeByPath(%v): %v", childPath, err))
 			req.RespondError(fuse.EIO)
 			return
 		}
 		childType := fuse.DT_File
-		if c.FileID == "" {
+		if c.Synthetic() {
 			childType = fuse.DT_Dir
 		}
 		ci := sc.inode.FromPath(childPath)
 		dirs = append(dirs, fuse.Dirent{Inode: ci, Name: c.Filename, Type: childType})
 	}
-	fuse.Debug(fmt.Sprintf("%+v", dirs))
+	fuse.Debug(fmt.Sprintf("ReadDir Response: %+v", dirs))
 
 	var data []byte
 	for _, dir := range dirs {
@@ -301,7 +302,8 @@ func (sc *serveConn) attrFromNode(node cache.Node, i uint64) fuse.Attr {
 		Mode:  0755,
 		Nlink: 1,
 	}
-	if node.FileID == "" { // it's a synthetic directory
+
+	if node.Synthetic() { // it's a synthetic directory
 		attr.Mode = os.ModeDir | 0755
 		attr.Nlink = uint32(len(node.Children) + 2)
 		return attr
@@ -321,7 +323,7 @@ func (sc *serveConn) attrFromNode(node cache.Node, i uint64) fuse.Attr {
 
 // Allocate a file handle, held by the kernel until Release
 func (sc *serveConn) open(req *fuse.OpenRequest) {
-	_, err := sc.nodeByID(req.Header.Node)
+	n, err := sc.nodeByID(req.Header.Node)
 	if err != nil {
 		req.RespondError(fuse.ENOENT)
 		return
@@ -337,7 +339,8 @@ func (sc *serveConn) open(req *fuse.OpenRequest) {
 	}
 
 	// TODO(asjoyner): get the shade.File for the node, stuff it in the Handle
-	hId = sc.allocHandle(req.Header.Node, shade.File{})
+	f, err := sc.cache.FileByNode(n)
+	hId = sc.allocHandle(req.Header.Node, f)
 
 	resp := fuse.OpenResponse{Handle: fuse.HandleID(hId)}
 	fuse.Debug(fmt.Sprintf("Open Response: %+v", resp))
@@ -346,7 +349,7 @@ func (sc *serveConn) open(req *fuse.OpenRequest) {
 }
 
 // allocate a kernel file handle for the requested inode
-func (sc *serveConn) allocHandle(inode fuse.NodeID, f shade.File) uint64 {
+func (sc *serveConn) allocHandle(inode fuse.NodeID, f *shade.File) uint64 {
 	var hId uint64
 	var found bool
 	h := handle{inode: inode, file: f}

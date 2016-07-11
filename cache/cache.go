@@ -2,6 +2,7 @@ package cache
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -26,9 +27,16 @@ type Node struct {
 	Filename     string
 	Filesize     uint64
 	ModifiedTime time.Time
-	FileID       string
+	Sha256sum    []byte // the sha of the associated File
 	// TODO(asjoyner): use a struct{} here for efficiency?
 	Children map[string]bool
+}
+
+func (n *Node) Synthetic() bool {
+	if n.Sha256sum == nil {
+		return true
+	}
+	return false
 }
 
 // Reader is a wrapper around a slice of cloud storage backends.  It presents an
@@ -60,7 +68,7 @@ func New(clients []drive.Client, t *time.Ticker) (*Reader, error) {
 	return c, nil
 }
 
-// NodeByPath returns the current file object for a given path
+// NodeByPath returns the current file object for a given path.
 func (c *Reader) NodeByPath(p string) (Node, error) {
 	c.RLock()
 	defer c.RUnlock()
@@ -69,6 +77,22 @@ func (c *Reader) NodeByPath(p string) (Node, error) {
 	}
 	fmt.Printf("%+v\n", c.nodes)
 	return Node{}, fmt.Errorf("no such node: %q", p)
+}
+
+// FileByNode returns the full shade.File object for a given node.
+func (c *Reader) FileByNode(n Node) (*shade.File, error) {
+	if n.Sha256sum == nil {
+		return nil, errors.New("no shade.File defined")
+	}
+	f, err := retrieveChunk(n.Sha256sum)
+	if err != nil {
+		return nil, fmt.Errorf("retrieveChunk(%x)", n.Sha256sum, err)
+	}
+	file := &shade.File{}
+	if err := json.Unmarshal(f, file); err != nil {
+		return nil, fmt.Errorf("Failed to unmarshal sha256sum %x: %s", n.Sha256sum, err)
+	}
+	return file, nil
 }
 
 func (c *Reader) HasChild(parent, child string) bool {
@@ -129,7 +153,7 @@ func (c *Reader) refresh() error {
 				Filename:     file.Filename,
 				Filesize:     uint64(file.Filesize),
 				ModifiedTime: file.ModifiedTime,
-				FileID:       id,
+				Sha256sum:    sha256sum,
 				Children:     nil,
 			}
 			c.Lock()
