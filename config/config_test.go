@@ -7,6 +7,13 @@ import (
 	"testing"
 
 	"github.com/asjoyner/shade/drive"
+
+	// These are imported here to register them as drive client providers, and
+	// are tested below.
+	_ "github.com/asjoyner/shade/drive/amazon"
+	_ "github.com/asjoyner/shade/drive/google"
+	_ "github.com/asjoyner/shade/drive/localdrive"
+	_ "github.com/asjoyner/shade/drive/memory"
 )
 
 type testCase struct {
@@ -59,6 +66,26 @@ func TestParseConfig(t *testing.T) {
 						ClientSecret: "abcde",
 						Scopes: []string{
 							"clouddrive:read_other clouddrive:write",
+						},
+						TokenPath: "/dev/null",
+					},
+					FileParentID:  "1",
+					ChunkParentID: "2",
+					Write:         false,
+				},
+			},
+		},
+		{
+			name:       "single google provider",
+			configPath: "testdata/single-google-provider.config.json",
+			want: []drive.Config{
+				{
+					Provider: "google",
+					OAuth: drive.OAuthConfig{
+						ClientID:     "54321",
+						ClientSecret: "edcba",
+						Scopes: []string{
+							"https://www.googleapis.com/auth/drive",
 						},
 						TokenPath: "/dev/null",
 					},
