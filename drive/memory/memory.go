@@ -90,3 +90,5 @@ func (s *MemoryDrive) PutChunk(sha256 []byte, chunk []byte) error {
 func (s *MemoryDrive) GetConfig() drive.Config {
 	return s.config
 }
+
+func (s *MemoryDrive) Local() bool { return true }

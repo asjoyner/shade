@@ -42,3 +42,5 @@ func (s *GoogleDrive) PutChunk(sha256 []byte, chunk []byte) error {
 func (s *GoogleDrive) GetConfig() drive.Config {
 	return s.config
 }
+
+func (s *GoogleDrive) Local() bool { return false }

@@ -25,6 +25,13 @@ type Client interface {
 	// GetConfig returns the drive.Config object used to initialize this client.
 	// This is mostly helpful for debugging, to identify which Provider it is.
 	GetConfig() Config
+
+	// Local identifies the storage destination of the client to the caller.
+	// If it returns false, code can expect that the content of this storage will
+	// persist after the death of the binary, or the machine on which it is
+	// running, or the continent on which it is located suffering a high altitude
+	// EMP burst.
+	Local() bool
 }
 
 type Config struct {

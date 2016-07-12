@@ -120,3 +120,5 @@ func (s *LocalDrive) PutChunk(sha256sum []byte, data []byte) error {
 func (s *LocalDrive) GetConfig() drive.Config {
 	return s.config
 }
+
+func (s *LocalDrive) Local() bool { return true }

@@ -170,6 +170,8 @@ func (s *AmazonCloudDrive) GetConfig() drive.Config {
 	return s.config
 }
 
+func (s *AmazonCloudDrive) Local() bool { return false }
+
 // uploadFile pushes the file with the associated metadata describing it
 func (s *AmazonCloudDrive) uploadFile(filename string, chunk []byte, metadata interface{}) error {
 	body, ctype, err := mimeEncode(filename, chunk, metadata)
