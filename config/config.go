@@ -10,6 +10,8 @@ import (
 	"github.com/asjoyner/shade/drive"
 	"github.com/asjoyner/shade/drive/amazon"
 	"github.com/asjoyner/shade/drive/google"
+	"github.com/asjoyner/shade/drive/localdrive"
+	"github.com/asjoyner/shade/drive/memory"
 )
 
 // Read finds, reads, parses, and returns the config.
@@ -62,6 +64,10 @@ func Clients() ([]drive.Client, error) {
 			c, err = amazon.NewClient(conf)
 		case "google":
 			c, err = google.NewClient(conf)
+		case "localdrive":
+			c, err = localdrive.NewClient(conf)
+		case "memory":
+			c, err = memory.NewClient(conf)
 		default:
 			return nil, fmt.Errorf("Unsupported provider in config: %s\n", conf.Provider)
 		}
