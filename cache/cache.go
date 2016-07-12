@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"path"
 	"strings"
@@ -84,12 +83,20 @@ func (c *Reader) FileByNode(n Node) (*shade.File, error) {
 	if n.Sha256sum == nil {
 		return nil, errors.New("no shade.File defined")
 	}
-	f, err := retrieveChunk(n.Sha256sum)
-	if err != nil {
-		return nil, fmt.Errorf("retrieveChunk(%x)", n.Sha256sum, err)
+	var fj []byte
+	var err error
+	for _, client := range c.clients {
+		fj, err = client.GetFile(n.Sha256sum)
+		if err != nil {
+			log.Printf("Failed to fetch %s: %s", n.Sha256sum, err)
+			continue
+		}
+	}
+	if fj == nil || len(fj) == 0 {
+		return nil, fmt.Errorf("Could not find JSON for node: %q", n.Filename)
 	}
 	file := &shade.File{}
-	if err := json.Unmarshal(f, file); err != nil {
+	if err := json.Unmarshal(fj, file); err != nil {
 		return nil, fmt.Errorf("Failed to unmarshal sha256sum %x: %s", n.Sha256sum, err)
 	}
 	return file, nil
@@ -109,6 +116,9 @@ func (c *Reader) NumNodes() int {
 	return len(c.nodes)
 }
 
+func (c *Reader) GetChunk(sha256sum []byte) {
+}
+
 // refresh updates the cache
 func (c *Reader) refresh() error {
 	debug("Begining cache refresh cycle.")
@@ -126,20 +136,19 @@ func (c *Reader) refresh() error {
 				continue // we've already processed this file
 			}
 
-			// check if the File is already in the disk cache
-			f, err := retrieveChunk(sha256sum)
+			// fetch the file Chunk
+			f, err := client.GetFile(id)
 			if err != nil {
-				// we have to fetch the file Chunk
-				f, err = client.GetFile(id)
-				if err != nil {
-					// TODO(asjoyner): retry
-					log.Printf("Failed to fetch %s with fileId %s: %s", sha256sum, id, err)
-					continue // the client did not have the file?
-				}
-				// store it in the disk cache
-				storeChunk(sha256sum, f)
-				if err != nil {
-					log.Printf("Failed to store checksum %s: %s", sha256sum, err)
+				// TODO(asjoyner): if !client.Local()... retry?
+				log.Printf("Failed to fetch %s with fileId %s: %s", sha256sum, id, err)
+				continue
+			}
+			// ensure this file is known to all the writable clients
+			for _, lc := range c.clients {
+				if lc.GetConfig().Write {
+					if err := lc.PutFile(sha256sum, f); err != nil {
+						log.Printf("Failed to store checksum %s in %s: %s", sha256sum, client.GetConfig().Provider, err)
+					}
 				}
 			}
 
@@ -196,23 +205,6 @@ func (c *Reader) periodicRefresh(t *time.Ticker) {
 		<-t.C
 		c.refresh()
 	}
-}
-
-func storeChunk(sha256sum []byte, data []byte) error {
-	filename := path.Join(*cacheDir, string(sha256sum))
-	if err := ioutil.WriteFile(filename, data, 0600); err != nil {
-		return err
-	}
-	return nil
-}
-
-func retrieveChunk(sha256sum []byte) ([]byte, error) {
-	filename := path.Join(*cacheDir, string(sha256sum))
-	f, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-	return f, nil
 }
 
 func debug(args interface{}) {
