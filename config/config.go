@@ -14,6 +14,8 @@ import (
 	"github.com/asjoyner/shade/drive/memory"
 )
 
+var validProviders = []string{"amazon", "google", "localdrive", "memory"}
+
 // Read finds, reads, parses, and returns the config.
 func Read() ([]drive.Config, error) {
 	filename := configPath()
@@ -39,6 +41,18 @@ func parseConfig(contents []byte) ([]drive.Config, error) {
 	}
 	if len(configs) == 0 {
 		return nil, fmt.Errorf("no provider in config file")
+	}
+	for _, config := range configs {
+		valid := false
+		for _, provider := range validProviders {
+			if config.Provider == provider {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return nil, fmt.Errorf("unsupported provider in config: %q", config.Provider)
+		}
 	}
 	return configs, nil
 }
@@ -69,7 +83,7 @@ func Clients() ([]drive.Client, error) {
 		case "memory":
 			c, err = memory.NewClient(conf)
 		default:
-			return nil, fmt.Errorf("Unsupported provider in config: %s\n", conf.Provider)
+			return nil, fmt.Errorf("unsupported provider in config: %q", conf.Provider)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("%s: %s", conf.Provider, err)

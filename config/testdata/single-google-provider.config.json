@@ -1,0 +1,13 @@
+[
+  {"Provider": "google",
+   "OAuth": {
+     "ClientID": "54321",
+     "ClientSecret": "edcba",
+     "Scopes": ["https://www.googleapis.com/auth/drive"],
+		 "TokenPath": "/dev/null"
+   },
+   "FileParentID": "1",
+   "ChunkParentID": "2",
+   "Write": false
+  }
+]

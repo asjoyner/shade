@@ -1,0 +1,8 @@
+[
+  {
+    "Provider": "localdrive",
+    "FileParentID": "/tmp/localdrive/files",
+    "ChunkParentID": "/tmp/localdrive/chunks",
+    "Write": true
+  }
+]
