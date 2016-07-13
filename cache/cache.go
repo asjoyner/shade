@@ -74,6 +74,7 @@ func (c *Reader) NodeByPath(p string) (Node, error) {
 	if n, ok := c.nodes[p]; ok {
 		return n, nil
 	}
+	// TODO(shanel): Should this be debug?
 	log.Printf("%+v\n", c.nodes)
 	return Node{}, fmt.Errorf("no such node: %q", p)
 }
@@ -197,8 +198,7 @@ func (c *Reader) addParents(filepath string) {
 	}
 	debug(fmt.Sprintf("adding %q as a child of %q", f, dir))
 	// TODO(asjoyner): handle file + directory collisions
-	parent, ok := c.nodes[dir]
-	if !ok {
+	if parent, ok := c.nodes[dir]; !ok {
 		// if the parent node doesn't yet exist, initialize it
 		c.nodes[dir] = Node{
 			Filename: dir,
@@ -207,9 +207,7 @@ func (c *Reader) addParents(filepath string) {
 	} else {
 		parent.Children[f] = true
 	}
-	if dir == "/" {
-		return
-	} else {
+	if dir != "/" {
 		c.addParents(dir)
 	}
 }
