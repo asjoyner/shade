@@ -57,7 +57,7 @@ type OAuthConfig struct {
 type clientCreator func(c Config) (Client, error)
 
 var (
-	mu        sync.Mutex // Protects providers.
+	mu        sync.RWMutex // Protects providers.
 	providers = make(map[string]clientCreator)
 )
 
@@ -71,16 +71,16 @@ func RegisterProvider(name string, f clientCreator) {
 
 // ValidProvider indicates whether a provider with the given name is registered.
 func ValidProvider(name string) bool {
-	mu.Lock()
-	defer mu.Unlock()
+	mu.RLock()
+	defer mu.RUnlock()
 	_, valid := providers[name]
 	return valid
 }
 
 // NewClient creates a new client of type provider with the provided config.
 func NewClient(c Config) (Client, error) {
-	mu.Lock()
-	defer mu.Unlock()
+	mu.RLock()
+	defer mu.RUnlock()
 	if f, ok := providers[c.Provider]; ok {
 		return f(c)
 	}
