@@ -78,6 +78,14 @@ func (c *Reader) NodeByPath(p string) (Node, error) {
 	return Node{}, fmt.Errorf("no such node: %q", p)
 }
 
+func unmarshalChunk(fj, sha []byte) (*shade.File, error) {
+	file := &shade.File{}
+	if err := json.Unmarshal(fj, file); err != nil {
+		return nil, fmt.Errorf("Failed to unmarshal sha256sum %x: %s", sha, err)
+	}
+	return file, nil
+}
+
 // FileByNode returns the full shade.File object for a given node.
 func (c *Reader) FileByNode(n Node) (*shade.File, error) {
 	if n.Synthetic() {
@@ -95,11 +103,7 @@ func (c *Reader) FileByNode(n Node) (*shade.File, error) {
 	if fj == nil || len(fj) == 0 {
 		return nil, fmt.Errorf("Could not find JSON for node: %q", n.Filename)
 	}
-	file := &shade.File{}
-	if err := json.Unmarshal(fj, file); err != nil {
-		return nil, fmt.Errorf("Failed to unmarshal sha256sum %x: %s", n.Sha256sum, err)
-	}
-	return file, nil
+	return unmarshalChunk(fj, n.Sha256sum)
 }
 
 func (c *Reader) HasChild(parent, child string) bool {
@@ -154,9 +158,9 @@ func (c *Reader) refresh() error {
 			}
 
 			// unmarshal and populate c.nodes as the shade.files go by
-			file := &shade.File{}
-			if err := json.Unmarshal(f, file); err != nil {
-				log.Printf("Failed to unmarshal file %x: %s", sha256sum, err)
+			file, err := unmarshalChunk(f, sha256sum)
+			if err != nil {
+				log.Printf("%v", err)
 				continue
 			}
 			node := Node{
