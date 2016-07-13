@@ -106,20 +106,10 @@ func (s *AmazonCloudDrive) ListFiles() ([][]byte, error) {
 	s.RLock()
 	defer s.RUnlock()
 	resp := make([][]byte, 0, len(s.files))
-	for sha256sum, _ := range s.files {
+	for sha256sum := range s.files {
 		resp = append(resp, []byte(sha256sum))
 	}
 	return resp, nil
-}
-
-// GetFile retrieves the File described by the ID.
-// The responses are marshalled JSON, which may be encrypted.
-func (s *AmazonCloudDrive) GetFile(fileID string) ([]byte, error) {
-	c, err := s.getFileContents(fileID)
-	if err != nil {
-		return nil, err
-	}
-	return c, nil
 }
 
 // PutFile writes the manifest describing a new file.
