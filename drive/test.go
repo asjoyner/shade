@@ -45,7 +45,7 @@ func TestFileRoundTrip(t *testing.T, c Client) {
 		}
 		if !found {
 			t.Errorf("test file not returned: %s", stringSum)
-			//fmt.Printf("%+v\n", lfm)
+			//log.Printf("%+v\n", lfm)
 		}
 	}
 }
