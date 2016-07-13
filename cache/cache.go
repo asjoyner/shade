@@ -186,18 +186,27 @@ func (c *Reader) refresh() error {
 // recursive function to update parent dirs
 func (c *Reader) addParents(filepath string) {
 	dir, f := path.Split(filepath)
-	debug(fmt.Sprintf("adding %s as child of %s", f, dir))
+	if dir == "" {
+		dir = "/"
+	} else {
+		dir = strings.TrimSuffix(dir, "/")
+	}
+	debug(fmt.Sprintf("adding %q as a child of %q", f, dir))
 	// TODO(asjoyner): handle file + directory collisions
 	parent, ok := c.nodes[dir]
 	if !ok {
 		// if the parent node doesn't yet exist, initialize it
-		parent.Children = make(map[string]bool)
-	}
-	parent.Children[f] = true
-	if dir == "" {
-		c.nodes["/"].Children[f] = true
+		c.nodes[dir] = Node{
+			Filename: dir,
+			Children: map[string]bool{f: true},
+		}
 	} else {
-		c.addParents(strings.TrimSuffix(dir, "/"))
+		parent.Children[f] = true
+	}
+	if dir == "/" {
+		return
+	} else {
+		c.addParents(dir)
 	}
 }
 

@@ -257,7 +257,7 @@ func (sc *serveConn) readDir(req *fuse.ReadRequest) {
 			childType = fuse.DT_Dir
 		}
 		ci := sc.inode.FromPath(childPath)
-		dirs = append(dirs, fuse.Dirent{Inode: ci, Name: c.Filename, Type: childType})
+		dirs = append(dirs, fuse.Dirent{Inode: ci, Name: name, Type: childType})
 	}
 	fuse.Debug(fmt.Sprintf("ReadDir Response: %+v", dirs))
 
@@ -271,26 +271,29 @@ func (sc *serveConn) readDir(req *fuse.ReadRequest) {
 }
 
 func (sc *serveConn) read(req *fuse.ReadRequest) {
+	req.RespondError(fuse.ENOSYS)
 	return
-	// TODO(asjoyner): shadeify
 	/*
-		inode := uint64(req.Header.Node)
-		resp := &fuse.ReadResponse{}
-		// Lookup which fileId this request refers to
-		f, err := sc.db.FileByInode(inode)
+		h, err := sc.handleById(req.Handle)
+		f := h.file
+		fuse.Debug(fmt.Sprintf("Read(name: %s, offset: %d, size: %d)\n", f.Filename, req.Offset, req.Size))
+		chunkSums, err := chunksForRead(f, req.Offset, int64(req.Size))
+		// calculated num required chunks
+		// TODO: for each chunk
+		// TODO:   fetch chunk
+		// TODO:   optionally decrypt chunk
+		// TODO:   push chunk into local storage
+		// TODO:   (return the chunk)
+		// TODO:   fill resp.Data from chunk
 		if err != nil {
-			debug.Printf("FileByInode(%d): %v", inode, err)
+			fuse.Debug(fmt.Sprintf("db.ReadFileData(..%v..): %v", req.Offset, err))
 			req.RespondError(fuse.EIO)
 			return
 		}
-		debug.Printf("Read(title: %s, offset: %d, size: %d)\n", f.Title, req.Offset, req.Size)
-		resp.Data, err = sc.db.ReadFiledata(f.Id, req.Offset, int64(req.Size), f.Filesize)
-		if err != nil && err != io.EOF {
-			debug.Printf("db.ReadFileData (..%v..): %v", req.Offset, err)
-			req.RespondError(fuse.EIO)
-			return
-		}
+		resp := fuse.ReadResponse{}
+		resp.Data, err = allTheBytes
 		req.Respond(resp)
+		return
 	*/
 }
 
@@ -658,4 +661,20 @@ func (sc *serveConn) write(req *fuse.WriteRequest) {
 		sc.Unlock()
 		req.Respond(&fuse.WriteResponse{n})
 	*/
+}
+
+func chunksForRead(f *shade.File, offset, size int64) ([]shade.Chunk, error) {
+	var chunks []shade.Chunk
+	chunkSize := int64(f.Chunksize)
+	chunkNum := offset / chunkSize
+	// Keep adding chunks until we've satisfied the request
+	// r is the remaining number of bytes required
+	for r := size - chunkSize; r <= 0; r -= chunkSize {
+		if chunkNum > int64(len(f.Chunks)) {
+			return nil, fmt.Errorf("no chunk for read at: %d", chunkNum)
+		}
+		chunks = append(chunks, f.Chunks[chunkNum])
+		chunkNum++
+	}
+	return chunks, nil
 }
