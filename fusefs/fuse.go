@@ -9,7 +9,9 @@ import (
 	"io"
 	_ "net/http/pprof"
 	"os"
+	"os/user"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,12 +46,10 @@ type serveConn struct {
 	sync.Mutex
 }
 
-func New(r *cache.Reader, uid, gid uint32, conn *fuse.Conn) *serveConn {
+func New(r *cache.Reader, conn *fuse.Conn) *serveConn {
 	return &serveConn{
 		cache:   r,
 		inode:   NewInodeMap(),
-		uid:     uid,
-		gid:     gid,
 		writers: make(map[int]io.PipeWriter),
 		conn:    conn,
 	}
@@ -65,6 +65,11 @@ type handle struct {
 
 // Serve receives and dispatches Requests from the kernel
 func (sc *serveConn) Serve() error {
+	var err error
+	sc.uid, sc.gid, err = uidAndGid()
+	if err != nil {
+		return err
+	}
 	for {
 		req, err := sc.conn.ReadRequest()
 		if err != nil {
@@ -243,7 +248,7 @@ func (sc *serveConn) readDir(req *fuse.ReadRequest) {
 	}
 
 	var dirs []fuse.Dirent
-	for name, _ := range n.Children {
+	for name := range n.Children {
 		childPath := strings.TrimPrefix(path.Join(n.Filename, name), "/")
 		c, err := sc.cache.NodeByPath(childPath)
 		fuse.Debug(fmt.Sprintf("Found child: %+v", c))
@@ -653,4 +658,24 @@ func chunksForRead(f *shade.File, offset, size int64) ([]shade.Chunk, error) {
 		chunkNum++
 	}
 	return chunks, nil
+}
+
+// uidAndGid returns those values for the process, or err
+func uidAndGid() (uint32, uint32, error) {
+	userCurrent, err := user.Current()
+	if err != nil {
+		return 0, 0, err
+	}
+	uidInt, err := strconv.Atoi(userCurrent.Uid)
+	if err != nil {
+		return 0, 0, err
+	}
+	uid := uint32(uidInt)
+	gidInt, err := strconv.Atoi(userCurrent.Gid)
+	if err != nil {
+		return 0, 0, err
+	}
+	gid := uint32(gidInt)
+
+	return uid, gid, nil
 }
