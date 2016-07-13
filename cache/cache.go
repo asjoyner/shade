@@ -74,13 +74,13 @@ func (c *Reader) NodeByPath(p string) (Node, error) {
 	if n, ok := c.nodes[p]; ok {
 		return n, nil
 	}
-	fmt.Printf("%+v\n", c.nodes)
+	log.Printf("%+v\n", c.nodes)
 	return Node{}, fmt.Errorf("no such node: %q", p)
 }
 
 // FileByNode returns the full shade.File object for a given node.
 func (c *Reader) FileByNode(n Node) (*shade.File, error) {
-	if n.Sha256sum == nil {
+	if n.Synthetic() {
 		return nil, errors.New("no shade.File defined")
 	}
 	var fj []byte
