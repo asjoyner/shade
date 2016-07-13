@@ -230,7 +230,6 @@ func (sc *serveConn) lookup(req *fuse.LookupRequest) {
 	resp.Attr = sc.attrFromNode(node, inode)
 	fuse.Debug(fmt.Sprintf("Lookup(%v in %v): %v", req.Name, inode, resp.Node))
 	req.Respond(resp)
-	return
 }
 
 func (sc *serveConn) readDir(req *fuse.ReadRequest) {
@@ -267,12 +266,10 @@ func (sc *serveConn) readDir(req *fuse.ReadRequest) {
 	}
 	fuseutil.HandleRead(req, resp, data)
 	req.Respond(resp)
-	return
 }
 
 func (sc *serveConn) read(req *fuse.ReadRequest) {
 	req.RespondError(fuse.ENOSYS)
-	return
 	/*
 		h, err := sc.handleById(req.Handle)
 		f := h.file
@@ -293,7 +290,6 @@ func (sc *serveConn) read(req *fuse.ReadRequest) {
 		resp := fuse.ReadResponse{}
 		resp.Data, err = allTheBytes
 		req.Respond(resp)
-		return
 	*/
 }
 
@@ -341,7 +337,6 @@ func (sc *serveConn) open(req *fuse.OpenRequest) {
 	resp := fuse.OpenResponse{Handle: fuse.HandleID(hId)}
 	fuse.Debug(fmt.Sprintf("Open Response: %+v", resp))
 	req.Respond(&resp)
-	return
 }
 
 // allocate a kernel file handle for the requested inode
