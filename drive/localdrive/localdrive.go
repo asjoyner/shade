@@ -47,10 +47,12 @@ func NewClient(c drive.Config) (drive.Client, error) {
 		c.ChunkParentID,
 		c.FileParentID,
 	} {
-		if _, err := os.Open(dir); err != nil {
+		if fh, err := os.Open(dir); err != nil {
 			if err := os.Mkdir(dir, 0700); err != nil {
 				return nil, err
 			}
+		} else {
+			fh.Close()
 		}
 	}
 
@@ -92,6 +94,10 @@ func (s *LocalDrive) PutFile(sha256sum, data []byte) error {
 	s.Lock()
 	defer s.Unlock()
 	filename := path.Join(s.config.FileParentID, hex.EncodeToString(sha256sum))
+	if fh, err := os.Open(filename); err == nil {
+		fh.Close()
+		return nil
+	}
 	if err := ioutil.WriteFile(filename, data, 0400); err != nil {
 		return err
 	}

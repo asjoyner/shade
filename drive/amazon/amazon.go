@@ -45,7 +45,12 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &AmazonCloudDrive{client: client, ep: ep, config: c}, nil
+	return &AmazonCloudDrive{
+		client: client,
+		ep:     ep,
+		config: c,
+		files:  make(map[string]string),
+	}, nil
 }
 
 type AmazonCloudDrive struct {
@@ -174,6 +179,13 @@ func (s *AmazonCloudDrive) GetChunk(sha256sum []byte) ([]byte, error) {
 
 // PutChunk writes a chunk and returns its SHA-256 sum
 func (s *AmazonCloudDrive) PutChunk(sha256sum []byte, chunk []byte) error {
+	s.RLock()
+	_, ok := s.files[string(sha256sum)]
+	s.RUnlock()
+	if ok {
+		return nil // we know this chunk already exists
+	}
+
 	filename := hex.EncodeToString(sha256sum)
 	metadata := map[string]interface{}{
 		"kind":   "FILE",
@@ -213,7 +225,11 @@ func (s *AmazonCloudDrive) uploadFile(filename string, chunk []byte, metadata in
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 201 {
+	if resp.StatusCode == 409 {
+		// "409 Conflict" indicates the file already exists at this path with this
+		// name.  Thus, we do not consider this an error.
+		return nil
+	} else if resp.StatusCode != 201 {
 		buf := new(bytes.Buffer)
 		buf.ReadFrom(resp.Body)
 		return fmt.Errorf("upload failed: %s: %s", resp.Status, buf.String())
