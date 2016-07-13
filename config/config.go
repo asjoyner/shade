@@ -52,7 +52,7 @@ func configPath() string {
 func Clients() ([]drive.Client, error) {
 	configs, err := Read()
 	if err != nil {
-		fmt.Printf("could not parse config: %s", err)
+		return nil, fmt.Errorf("could not parse config: %s", err)
 	}
 
 	// initialize the drive client(s)

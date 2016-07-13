@@ -16,6 +16,11 @@ import (
 	"github.com/asjoyner/shade/cache"
 	"github.com/asjoyner/shade/config"
 	"github.com/asjoyner/shade/drive"
+
+	_ "github.com/asjoyner/shade/drive/amazon"
+	_ "github.com/asjoyner/shade/drive/google"
+	_ "github.com/asjoyner/shade/drive/localdrive"
+	_ "github.com/asjoyner/shade/drive/memory"
 )
 
 var (
@@ -35,8 +40,7 @@ func main() {
 	// read in the config
 	clients, err := config.Clients()
 	if err != nil {
-		fmt.Printf("could not initialize clients: %s", err)
-		os.Exit(1)
+		log.Fatalf("could not initialize clients: %s\n", err)
 	}
 
 	// Setup fuse FS

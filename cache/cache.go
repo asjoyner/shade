@@ -61,7 +61,7 @@ func New(clients []drive.Client, t *time.Ticker) (*Reader, error) {
 			}},
 	}
 	if err := c.refresh(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initializing cache: %s", err)
 	}
 	go c.periodicRefresh(t)
 	return c, nil
@@ -127,7 +127,7 @@ func (c *Reader) refresh() error {
 	for _, client := range c.clients {
 		lfm, err := client.ListFiles()
 		if err != nil {
-			return err
+			return fmt.Errorf("%q ListFiles(): %s", client.GetConfig().Provider, err)
 		}
 		debug(fmt.Sprintf("Found %d file(s) via %s", len(lfm), client.GetConfig().Provider))
 		// fetch all those files into the local disk cache
