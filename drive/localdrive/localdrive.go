@@ -11,6 +11,7 @@ import (
 	"flag"
 	"io/ioutil"
 	"log"
+	"os"
 	"path"
 	"sync"
 
@@ -42,6 +43,17 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	if c.FileParentID == "" {
 		c.FileParentID = *fileCacheDir
 	}
+	for _, dir := range []string{
+		c.ChunkParentID,
+		c.FileParentID,
+	} {
+		if _, err := os.Open(dir); err != nil {
+			if err := os.Mkdir(dir, 0700); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	return &LocalDrive{config: c}, nil
 }
 
