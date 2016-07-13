@@ -75,8 +75,7 @@ func (ep *Endpoint) GetEndpoint() error {
 // TODO(asjoyner): cache this, and save 1 RPC for every invocation of throw
 func (ep *Endpoint) RefreshEndpoint() {
 	for {
-		err := backoff.Retry(ep.GetEndpoint, backoff.NewExponentialBackOff())
-		if err != nil {
+		if err := backoff.Retry(ep.GetEndpoint, backoff.NewExponentialBackOff()); err != nil {
 			// Failed for 15 minutes, lets sleep for a couple hours and try again.
 			time.Sleep(2 * time.Hour)
 		} else {
