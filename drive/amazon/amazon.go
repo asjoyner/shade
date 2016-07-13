@@ -112,16 +112,6 @@ func (s *AmazonCloudDrive) ListFiles() ([][]byte, error) {
 	return resp, nil
 }
 
-// GetFile retrieves the File described by the ID.
-// The responses are marshalled JSON, which may be encrypted.
-func (s *AmazonCloudDrive) GetFile(fileID string) ([]byte, error) {
-	c, err := s.getFileContents(fileID)
-	if err != nil {
-		return nil, err
-	}
-	return c, nil
-}
-
 // PutFile writes the manifest describing a new file.
 // f should be marshalled JSON, and may be encrypted.
 func (s *AmazonCloudDrive) PutFile(sha256sum, contents []byte) error {
