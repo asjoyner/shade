@@ -64,8 +64,7 @@ func TestChunkRoundTrip(t *testing.T, c Client) {
 		chunkSum := sha256.Sum256(chunk)
 		err := c.PutChunk(chunkSum[:], chunk)
 		if err != nil {
-			t.Errorf("Failed to put test file \"%x\": ", chunkSum, err)
-			return
+			t.Fatalf("Failed to put test file \"%x\": ", chunkSum, err)
 		}
 	}
 
