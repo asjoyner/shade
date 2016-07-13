@@ -28,3 +28,29 @@ func TestSynthetic(t *testing.T) {
 		}
 	}
 }
+
+func TestNodeByPath(t *testing.T) {
+	tests := []struct {
+		nodes   map[string]Node
+		wantErr bool
+	}{
+		{
+			map[string]Node{"n": Node{}},
+			false,
+		},
+		{
+			map[string]Node{},
+			true,
+		},
+	}
+	for _, test := range tests {
+		r := Reader{nodes: test.nodes}
+		_, err := r.NodeByPath("n")
+		if err == nil && test.wantErr {
+			t.Fatalf("NodeByPath(\"n\") did not return expected error")
+		}
+		if err != nil && !test.wantErr {
+			t.Fatalf("NodeByPath(\"n\") returned unexpected error")
+		}
+	}
+}
