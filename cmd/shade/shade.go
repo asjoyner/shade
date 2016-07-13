@@ -121,8 +121,9 @@ func serviceFuse(conn *fuse.Conn, clients []drive.Client) error {
 		return fmt.Errorf("fuse server initialization failed: %s", err)
 	}
 
-	// check if the mount process has an error to report
+	// block until unmounted
 	<-conn.Ready
+	// check if the mount process has an error to report
 	if err := conn.MountError; err != nil {
 		return err
 	}
