@@ -54,27 +54,27 @@ type OAuthConfig struct {
 	TokenPath    string
 }
 
-type ClientCreator func(c Config) (Client, error)
+type clientCreator func(c Config) (Client, error)
 
 var (
 	mu        sync.Mutex // Protects providers.
-	providers = make(map[string]ClientCreator)
+	providers = make(map[string]clientCreator)
 )
 
 // RegisterProvider declares that a provider with a given name exists and can
 // be used via the calls below.
-func RegisterProvider(name string, f ClientCreator) {
+func RegisterProvider(name string, f clientCreator) {
 	mu.Lock()
 	defer mu.Unlock()
 	providers[name] = f
 }
 
 // ValidProvider indicates whether a provider with the given name is registered.
-func ValidProvider(name string) (valid bool) {
+func ValidProvider(name string) bool {
 	mu.Lock()
 	defer mu.Unlock()
-	_, valid = providers[name]
-	return
+	_, valid := providers[name]
+	return valid
 }
 
 // NewClient creates a new client of type provider with the provided config.
