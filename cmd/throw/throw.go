@@ -19,7 +19,6 @@ import (
 	_ "github.com/asjoyner/shade/drive/memory"
 )
 
-// TODO(asjoyner): make chunksize a flag
 var chunksize = flag.Int("chunksize", 16*1024*1024, "size of a chunk stored in Drive, in bytes")
 
 func main() {

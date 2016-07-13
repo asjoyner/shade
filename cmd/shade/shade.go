@@ -111,7 +111,7 @@ func serviceFuse(conn *fuse.Conn, clients []drive.Client) error {
 		return fmt.Errorf("unable to get UID/GID of current user: %v", err)
 	}
 	refresh := time.NewTicker(5 * time.Minute)
-	r, err := cache.New(clients, refresh)
+	r, err := cache.NewReader(clients, refresh)
 	if err != nil {
 		return err
 	}
@@ -121,9 +121,8 @@ func serviceFuse(conn *fuse.Conn, clients []drive.Client) error {
 		return fmt.Errorf("fuse server initialization failed: %s", err)
 	}
 
-	// block until unmounted
-	<-conn.Ready
 	// check if the mount process has an error to report
+	<-conn.Ready
 	if err := conn.MountError; err != nil {
 		return err
 	}
