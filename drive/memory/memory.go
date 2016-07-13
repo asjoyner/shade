@@ -12,6 +12,10 @@ import (
 	"github.com/asjoyner/shade/drive"
 )
 
+func init() {
+	drive.RegisterProvider("memory", NewClient)
+}
+
 func NewClient(c drive.Config) (drive.Client, error) {
 	client := &MemoryDrive{
 		config: c,

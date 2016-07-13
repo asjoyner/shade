@@ -9,7 +9,14 @@ import (
 
 	"github.com/google/subcommands"
 
+	// Subcommand imports
 	_ "github.com/asjoyner/shade/cmd/shadeutil/ls"
+
+	// Drive client provider imports
+	_ "github.com/asjoyner/shade/drive/amazon"
+	_ "github.com/asjoyner/shade/drive/google"
+	_ "github.com/asjoyner/shade/drive/localdrive"
+	_ "github.com/asjoyner/shade/drive/memory"
 )
 
 func main() {

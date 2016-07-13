@@ -8,10 +8,6 @@ import (
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
-	"github.com/asjoyner/shade/drive/amazon"
-	"github.com/asjoyner/shade/drive/google"
-	"github.com/asjoyner/shade/drive/localdrive"
-	"github.com/asjoyner/shade/drive/memory"
 )
 
 // Read finds, reads, parses, and returns the config.
@@ -40,6 +36,11 @@ func parseConfig(contents []byte) ([]drive.Config, error) {
 	if len(configs) == 0 {
 		return nil, fmt.Errorf("no provider in config file")
 	}
+	for _, config := range configs {
+		if !drive.ValidProvider(config.Provider) {
+			return nil, fmt.Errorf("unsupported provider in config: %q", config.Provider)
+		}
+	}
 	return configs, nil
 }
 
@@ -57,24 +58,10 @@ func Clients() ([]drive.Client, error) {
 	// initialize the drive client(s)
 	var clients []drive.Client
 	for _, conf := range configs {
-		var c drive.Client
-		var err error
-		switch conf.Provider {
-		case "amazon":
-			c, err = amazon.NewClient(conf)
-		case "google":
-			c, err = google.NewClient(conf)
-		case "localdrive":
-			c, err = localdrive.NewClient(conf)
-		case "memory":
-			c, err = memory.NewClient(conf)
-		default:
-			return nil, fmt.Errorf("Unsupported provider in config: %s\n", conf.Provider)
-		}
+		c, err := drive.NewClient(conf)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %s", conf.Provider, err)
 		}
-
 		clients = append(clients, c)
 	}
 	return clients, nil
