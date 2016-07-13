@@ -243,7 +243,7 @@ func (sc *serveConn) readDir(req *fuse.ReadRequest) {
 	}
 
 	var dirs []fuse.Dirent
-	for name, _ := range n.Children {
+	for name := range n.Children {
 		childPath := strings.TrimPrefix(path.Join(n.Filename, name), "/")
 		c, err := sc.cache.NodeByPath(childPath)
 		fuse.Debug(fmt.Sprintf("Found child: %+v", c))

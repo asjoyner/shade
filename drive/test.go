@@ -32,7 +32,7 @@ func TestFileRoundTrip(t *testing.T, c Client) {
 		t.Errorf("Failed to retrieve file map: ", err)
 		return
 	}
-	for stringSum, _ := range testFiles {
+	for stringSum := range testFiles {
 		sum, err := hex.DecodeString(stringSum)
 		if err != nil {
 			t.Fatalf("testFile %s is broken: %s", stringSum, err)
@@ -53,7 +53,7 @@ func TestFileRoundTrip(t *testing.T, c Client) {
 func TestChunkRoundTrip(t *testing.T, c Client) {
 	// Generate some random test chunks
 	testChunks := make([][]byte, 100)
-	for i, _ := range testChunks {
+	for i := range testChunks {
 		n := make([]byte, 100*256)
 		rand.Read(n)
 		testChunks[i] = n

@@ -92,7 +92,7 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	go func() {
-		for _ = range sig {
+		for range sig {
 			if err := fuse.Unmount(mountPoint); err != nil {
 				log.Printf("fuse.Unmount failed: %v", err)
 			}
