@@ -1,15 +1,17 @@
 package drive
 
+import (
+	"fmt"
+	"sync"
+)
+
 // Client is a generic interface to a cloud storage backend.
 type Client interface {
-	// ListFiles retrieves all of the File objects known to the client.  The return
-	// maps from arbitrary unique keys to the sha256sum of the file object.  The
-	// keys may be passed to GetFile() to retrieve the corresponding shade.File.
-	ListFiles() (map[string][]byte, error)
-
-	// GetFile retrieves the File object described by the ID
-	// The response is marshalled JSON, which may be encrypted.
-	GetFile(fileID string) ([]byte, error)
+	// ListFiles retrieves the sha256sum of all of the File objects known to the
+	// client.  The elements of the slice may be passed to GetChunk() to retrieve
+	// the corresponding shade.File object.  It will be marshaled JSON,
+	// optionally encrypted.
+	ListFiles() ([][]byte, error)
 
 	// GetChunk retrieves a chunk with a given SHA-256 sum
 	GetChunk(sha256 []byte) ([]byte, error)
@@ -47,4 +49,37 @@ type OAuthConfig struct {
 	ClientSecret string
 	Scopes       []string
 	TokenPath    string
+}
+
+type clientCreator func(c Config) (Client, error)
+
+var (
+	mu        sync.RWMutex // Protects providers.
+	providers = make(map[string]clientCreator)
+)
+
+// RegisterProvider declares that a provider with a given name exists and can
+// be used via the calls below.
+func RegisterProvider(name string, f clientCreator) {
+	mu.Lock()
+	defer mu.Unlock()
+	providers[name] = f
+}
+
+// ValidProvider indicates whether a provider with the given name is registered.
+func ValidProvider(name string) bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	_, valid := providers[name]
+	return valid
+}
+
+// NewClient creates a new client of type provider with the provided config.
+func NewClient(c Config) (Client, error) {
+	mu.RLock()
+	defer mu.RUnlock()
+	if f, ok := providers[c.Provider]; ok {
+		return f(c)
+	}
+	return nil, fmt.Errorf("unknown provider: %q", c.Provider)
 }

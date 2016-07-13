@@ -16,6 +16,12 @@ import (
 	"github.com/asjoyner/shade/cache"
 	"github.com/asjoyner/shade/config"
 	"github.com/asjoyner/shade/drive"
+	"github.com/asjoyner/shade/fusefs"
+
+	_ "github.com/asjoyner/shade/drive/amazon"
+	_ "github.com/asjoyner/shade/drive/google"
+	_ "github.com/asjoyner/shade/drive/localdrive"
+	_ "github.com/asjoyner/shade/drive/memory"
 )
 
 var (
@@ -35,8 +41,7 @@ func main() {
 	// read in the config
 	clients, err := config.Clients()
 	if err != nil {
-		fmt.Printf("could not initialize clients: %s", err)
-		os.Exit(1)
+		log.Fatalf("could not initialize clients: %s\n", err)
 	}
 
 	// Setup fuse FS
@@ -76,6 +81,7 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 	if *readOnly {
 		options = append(options, fuse.ReadOnly())
 	}
+	options = append(options, fuse.NoAppleDouble())
 	c, err := fuse.Mount(mountPoint, options...)
 	if err != nil {
 		fmt.Println("Is the mount point busy?")
@@ -96,7 +102,9 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 	return c, nil
 }
 
-// serviceFuse responds to incoming fuse requests until the FS is unmounted.
+// serviceFuse initializes fusefs, the shade implementation of a fuse file
+// server, and services requests from the fuse kernel filesystem until it is
+// unmounted.
 func serviceFuse(conn *fuse.Conn, clients []drive.Client) error {
 	uid, gid, err := uidAndGid()
 	if err != nil {
@@ -107,8 +115,8 @@ func serviceFuse(conn *fuse.Conn, clients []drive.Client) error {
 	if err != nil {
 		return err
 	}
-	sc := NewFuseServer(r, uid, gid, conn)
-	err = sc.Serve()
+	ffs := fusefs.New(r, uid, gid, conn)
+	err = ffs.Serve()
 	if err != nil {
 		return fmt.Errorf("fuse server initialization failed: %s", err)
 	}
@@ -121,7 +129,7 @@ func serviceFuse(conn *fuse.Conn, clients []drive.Client) error {
 	return nil
 }
 
-// uidAndGid returns those values, or err
+// uidAndGid returns those values for the process, or err
 func uidAndGid() (uint32, uint32, error) {
 	userCurrent, err := user.Current()
 	if err != nil {

@@ -12,6 +12,11 @@ import (
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/config"
+
+	_ "github.com/asjoyner/shade/drive/amazon"
+	_ "github.com/asjoyner/shade/drive/google"
+	_ "github.com/asjoyner/shade/drive/localdrive"
+	_ "github.com/asjoyner/shade/drive/memory"
 )
 
 // TODO(asjoyner): make chunksize a flag
@@ -93,7 +98,7 @@ func main() {
 	// TODO(asjoyner): optionally, encrypt the manifest
 	// upload the manifest
 	for _, c := range clients {
-		a := sha256.Sum256(f)
+		a := sha256.Sum256(jm)
 		err := c.PutFile(a[:], jm)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "manifest upload failed: %s\n", err)

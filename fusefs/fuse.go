@@ -1,4 +1,4 @@
-package main
+package fusefs
 
 // This is a thin layer of glue between the bazil.org/fuse kernel interface
 // and the Shade Drive API.
@@ -44,7 +44,7 @@ type serveConn struct {
 	sync.Mutex
 }
 
-func NewFuseServer(r *cache.Reader, uid, gid uint32, conn *fuse.Conn) *serveConn {
+func New(r *cache.Reader, uid, gid uint32, conn *fuse.Conn) *serveConn {
 	return &serveConn{
 		cache:   r,
 		inode:   NewInodeMap(),
@@ -257,7 +257,7 @@ func (sc *serveConn) readDir(req *fuse.ReadRequest) {
 			childType = fuse.DT_Dir
 		}
 		ci := sc.inode.FromPath(childPath)
-		dirs = append(dirs, fuse.Dirent{Inode: ci, Name: c.Filename, Type: childType})
+		dirs = append(dirs, fuse.Dirent{Inode: ci, Name: name, Type: childType})
 	}
 	fuse.Debug(fmt.Sprintf("ReadDir Response: %+v", dirs))
 
@@ -271,26 +271,29 @@ func (sc *serveConn) readDir(req *fuse.ReadRequest) {
 }
 
 func (sc *serveConn) read(req *fuse.ReadRequest) {
+	req.RespondError(fuse.ENOSYS)
 	return
-	// TODO(asjoyner): shadeify
 	/*
-		inode := uint64(req.Header.Node)
-		resp := &fuse.ReadResponse{}
-		// Lookup which fileId this request refers to
-		f, err := sc.db.FileByInode(inode)
+		h, err := sc.handleById(req.Handle)
+		f := h.file
+		fuse.Debug(fmt.Sprintf("Read(name: %s, offset: %d, size: %d)\n", f.Filename, req.Offset, req.Size))
+		chunkSums, err := chunksForRead(f, req.Offset, int64(req.Size))
+		// calculated num required chunks
+		// TODO: for each chunk
+		// TODO:   fetch chunk
+		// TODO:   optionally decrypt chunk
+		// TODO:   push chunk into local storage
+		// TODO:   (return the chunk)
+		// TODO:   fill resp.Data from chunk
 		if err != nil {
-			debug.Printf("FileByInode(%d): %v", inode, err)
+			fuse.Debug(fmt.Sprintf("db.ReadFileData(..%v..): %v", req.Offset, err))
 			req.RespondError(fuse.EIO)
 			return
 		}
-		debug.Printf("Read(title: %s, offset: %d, size: %d)\n", f.Title, req.Offset, req.Size)
-		resp.Data, err = sc.db.ReadFiledata(f.Id, req.Offset, int64(req.Size), f.Filesize)
-		if err != nil && err != io.EOF {
-			debug.Printf("db.ReadFileData (..%v..): %v", req.Offset, err)
-			req.RespondError(fuse.EIO)
-			return
-		}
+		resp := fuse.ReadResponse{}
+		resp.Data, err = allTheBytes
 		req.Respond(resp)
+		return
 	*/
 }
 
@@ -329,18 +332,11 @@ func (sc *serveConn) open(req *fuse.OpenRequest) {
 		return
 	}
 
-	var hId uint64
-	if !req.Flags.IsReadOnly() { // write access requested
-		if *readOnly {
-			// TODO: if allow_other, require uid == invoking uid to allow writes
-			req.RespondError(fuse.EPERM)
-			return
-		}
-	}
+	// TODO: if allow_other, require uid == invoking uid to allow writes
 
 	// TODO(asjoyner): get the shade.File for the node, stuff it in the Handle
 	f, err := sc.cache.FileByNode(n)
-	hId = sc.allocHandle(req.Header.Node, f)
+	hId := sc.allocHandle(req.Header.Node, f)
 
 	resp := fuse.OpenResponse{Handle: fuse.HandleID(hId)}
 	fuse.Debug(fmt.Sprintf("Open Response: %+v", resp))
@@ -395,12 +391,8 @@ func (sc *serveConn) release(req *fuse.ReleaseRequest) {
 
 // Create file in drive, allocate kernel filehandle for writes
 func (sc *serveConn) create(req *fuse.CreateRequest) {
-	if *readOnly && !req.Flags.IsReadOnly() {
-		req.RespondError(fuse.EPERM)
-		return
-	}
-
 	// TODO(asjoyner): shadeify
+	req.RespondError(fuse.ENOSYS)
 	/*
 		pInode := uint64(req.Header.Node)
 		parent, err := sc.db.FileByInode(pInode)
@@ -462,11 +454,8 @@ func (sc *serveConn) create(req *fuse.CreateRequest) {
 }
 
 func (sc *serveConn) mkdir(req *fuse.MkdirRequest) {
-	if *readOnly {
-		req.RespondError(fuse.EPERM)
-		return
-	}
 	// TODO(asjoyner): shadeify
+	req.RespondError(fuse.ENOSYS)
 	/*
 		// TODO: if allow_other, require uid == invoking uid to allow writes
 		pInode := uint64(req.Header.Node)
@@ -508,11 +497,8 @@ func (sc *serveConn) mkdir(req *fuse.MkdirRequest) {
 // Nota bene: there is no check preventing the removal of a directory which
 // contains files.
 func (sc *serveConn) remove(req *fuse.RemoveRequest) {
-	if *readOnly {
-		req.RespondError(fuse.EPERM)
-		return
-	}
 	// TODO(asjoyner): shadeify
+	req.RespondError(fuse.ENOSYS)
 	// TODO: if allow_other, require uid == invoking uid to allow writes
 	// TODO: consider disallowing deletion of directories with contents.. but what error?
 	/*
@@ -539,14 +525,10 @@ func (sc *serveConn) remove(req *fuse.RemoveRequest) {
 	*/
 }
 
-// TODO(asjoyner): shadeify
 // rename renames a file or directory, optionally reparenting it
 func (sc *serveConn) rename(req *fuse.RenameRequest) {
-	if *readOnly {
-		fmt.Printf("attempt to rename while fs in readonly mode")
-		req.RespondError(fuse.EPERM)
-		return
-	}
+	// TODO(asjoyner): shadeify
+	req.RespondError(fuse.ENOSYS)
 	/*
 		// TODO: if allow_other, require uid == invoking uid to allow writes
 		oldParent, err := sc.db.FileByInode(uint64(req.Header.Node))
@@ -627,13 +609,10 @@ func (sc *serveConn) rename(req *fuse.RenameRequest) {
 	*/
 }
 
-// TODO(asjoyner): shadeify
 // Pass sequential writes on to the correct handle for uploading
 func (sc *serveConn) write(req *fuse.WriteRequest) {
-	if *readOnly {
-		req.RespondError(fuse.EPERM)
-		return
-	}
+	// TODO(asjoyner): shadeify
+	req.RespondError(fuse.ENOSYS)
 	// TODO: if allow_other, require uid == invoking uid to allow writes
 	/*
 		h, err := sc.handleById(req.Handle)
@@ -658,4 +637,20 @@ func (sc *serveConn) write(req *fuse.WriteRequest) {
 		sc.Unlock()
 		req.Respond(&fuse.WriteResponse{n})
 	*/
+}
+
+func chunksForRead(f *shade.File, offset, size int64) ([]shade.Chunk, error) {
+	var chunks []shade.Chunk
+	chunkSize := int64(f.Chunksize)
+	chunkNum := offset / chunkSize
+	// Keep adding chunks until we've satisfied the request
+	// r is the remaining number of bytes required
+	for r := size - chunkSize; r <= 0; r -= chunkSize {
+		if chunkNum > int64(len(f.Chunks)) {
+			return nil, fmt.Errorf("no chunk for read at: %d", chunkNum)
+		}
+		chunks = append(chunks, f.Chunks[chunkNum])
+		chunkNum++
+	}
+	return chunks, nil
 }

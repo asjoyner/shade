@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"path"
 	"strings"
@@ -62,7 +61,7 @@ func New(clients []drive.Client, t *time.Ticker) (*Reader, error) {
 			}},
 	}
 	if err := c.refresh(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initializing cache: %s", err)
 	}
 	go c.periodicRefresh(t)
 	return c, nil
@@ -84,12 +83,20 @@ func (c *Reader) FileByNode(n Node) (*shade.File, error) {
 	if n.Sha256sum == nil {
 		return nil, errors.New("no shade.File defined")
 	}
-	f, err := retrieveChunk(n.Sha256sum)
-	if err != nil {
-		return nil, fmt.Errorf("retrieveChunk(%x)", n.Sha256sum, err)
+	var fj []byte
+	var err error
+	for _, client := range c.clients {
+		fj, err = client.GetChunk(n.Sha256sum)
+		if err != nil {
+			log.Printf("Failed to fetch %s: %s", n.Sha256sum, err)
+			continue
+		}
+	}
+	if fj == nil || len(fj) == 0 {
+		return nil, fmt.Errorf("Could not find JSON for node: %q", n.Filename)
 	}
 	file := &shade.File{}
-	if err := json.Unmarshal(f, file); err != nil {
+	if err := json.Unmarshal(fj, file); err != nil {
 		return nil, fmt.Errorf("Failed to unmarshal sha256sum %x: %s", n.Sha256sum, err)
 	}
 	return file, nil
@@ -109,44 +116,47 @@ func (c *Reader) NumNodes() int {
 	return len(c.nodes)
 }
 
+func (c *Reader) GetChunk(sha256sum []byte) {
+}
+
 // refresh updates the cache
 func (c *Reader) refresh() error {
 	debug("Begining cache refresh cycle.")
+	// key is a string([]byte) representation of the file's SHA2
 	knownNodes := make(map[string]bool)
 	for _, client := range c.clients {
 		lfm, err := client.ListFiles()
 		if err != nil {
-			return err
+			return fmt.Errorf("%q ListFiles(): %s", client.GetConfig().Provider, err)
 		}
 		debug(fmt.Sprintf("Found %d file(s) via %s", len(lfm), client.GetConfig().Provider))
 		// fetch all those files into the local disk cache
-		for id, sha256sum := range lfm {
+		for _, sha256sum := range lfm {
 			// check if we have already processed this Node
 			if knownNodes[string(sha256sum)] {
 				continue // we've already processed this file
 			}
 
-			// check if the File is already in the disk cache
-			f, err := retrieveChunk(sha256sum)
+			// fetch the file Chunk
+			f, err := client.GetChunk(sha256sum)
 			if err != nil {
-				// we have to fetch the file Chunk
-				f, err = client.GetFile(id)
-				if err != nil {
-					// TODO(asjoyner): retry
-					log.Printf("Failed to fetch %s with fileId %s: %s", sha256sum, id, err)
-					continue // the client did not have the file?
-				}
-				// store it in the disk cache
-				storeChunk(sha256sum, f)
-				if err != nil {
-					log.Printf("Failed to store checksum %s: %s", sha256sum, err)
+				// TODO(asjoyner): if !client.Local()... retry?
+				log.Printf("Failed to fetch file %x: %s", sha256sum, err)
+				continue
+			}
+			// ensure this file is known to all the writable clients
+			for _, lc := range c.clients {
+				if lc.GetConfig().Write {
+					if err := lc.PutFile(sha256sum, f); err != nil {
+						log.Printf("Failed to store checksum %x in %s: %s", sha256sum, client.GetConfig().Provider, err)
+					}
 				}
 			}
 
 			// unmarshal and populate c.nodes as the shade.files go by
 			file := &shade.File{}
 			if err := json.Unmarshal(f, file); err != nil {
-				log.Printf("Failed to unmarshal fileID %s: %s", id, err)
+				log.Printf("Failed to unmarshal file %x: %s", sha256sum, err)
 				continue
 			}
 			node := Node{
@@ -176,18 +186,27 @@ func (c *Reader) refresh() error {
 // recursive function to update parent dirs
 func (c *Reader) addParents(filepath string) {
 	dir, f := path.Split(filepath)
-	debug(fmt.Sprintf("adding %s as child of %s", f, dir))
+	if dir == "" {
+		dir = "/"
+	} else {
+		dir = strings.TrimSuffix(dir, "/")
+	}
+	debug(fmt.Sprintf("adding %q as a child of %q", f, dir))
 	// TODO(asjoyner): handle file + directory collisions
 	parent, ok := c.nodes[dir]
 	if !ok {
 		// if the parent node doesn't yet exist, initialize it
-		parent.Children = make(map[string]bool)
-	}
-	parent.Children[f] = true
-	if dir == "" {
-		c.nodes["/"].Children[f] = true
+		c.nodes[dir] = Node{
+			Filename: dir,
+			Children: map[string]bool{f: true},
+		}
 	} else {
-		c.addParents(strings.TrimSuffix(dir, "/"))
+		parent.Children[f] = true
+	}
+	if dir == "/" {
+		return
+	} else {
+		c.addParents(dir)
 	}
 }
 
@@ -196,23 +215,6 @@ func (c *Reader) periodicRefresh(t *time.Ticker) {
 		<-t.C
 		c.refresh()
 	}
-}
-
-func storeChunk(sha256sum []byte, data []byte) error {
-	filename := path.Join(*cacheDir, string(sha256sum))
-	if err := ioutil.WriteFile(filename, data, 0600); err != nil {
-		return err
-	}
-	return nil
-}
-
-func retrieveChunk(sha256sum []byte) ([]byte, error) {
-	filename := path.Join(*cacheDir, string(sha256sum))
-	f, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-	return f, nil
 }
 
 func debug(args interface{}) {

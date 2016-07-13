@@ -2,6 +2,10 @@ package google
 
 import "github.com/asjoyner/shade/drive"
 
+func init() {
+	drive.RegisterProvider("google", NewClient)
+}
+
 func NewClient(c drive.Config) (drive.Client, error) {
 	return &GoogleDrive{}, nil
 }
@@ -10,16 +14,10 @@ type GoogleDrive struct {
 	config drive.Config
 }
 
-// ListFiles retrieves all of the File objects known to the client.  The return
-// maps from arbitrary unique keys to the sha256sum of the file object.  The
-// keys may be passed to GetFile() to retrieve the corresponding shade.File.
-func (s *GoogleDrive) ListFiles() (map[string][]byte, error) {
-	return nil, nil
-}
-
-// GetFiles retrieves all of the File objects known to the client.
-// The responses are marshalled JSON, which may be encrypted.
-func (s *GoogleDrive) GetFile(fileID string) ([]byte, error) {
+// ListFiles retrieves all of the File objects known to the client, and returns
+// the corresponding sha256sum of the file object.  Those may be passed to
+// GetChunk() to retrieve the corresponding shade.File.
+func (s *GoogleDrive) ListFiles() ([][]byte, error) {
 	return nil, nil
 }
 

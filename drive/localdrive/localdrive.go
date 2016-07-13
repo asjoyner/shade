@@ -7,9 +7,11 @@ package localdrive
 
 import (
 	"encoding/hex"
+	"errors"
 	"flag"
 	"io/ioutil"
 	"log"
+	"os"
 	"path"
 	"sync"
 
@@ -30,6 +32,10 @@ var (
 	)
 )
 
+func init() {
+	drive.RegisterProvider("localdrive", NewClient)
+}
+
 func NewClient(c drive.Config) (drive.Client, error) {
 	if c.ChunkParentID == "" {
 		c.ChunkParentID = *chunkCacheDir
@@ -37,6 +43,19 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	if c.FileParentID == "" {
 		c.FileParentID = *fileCacheDir
 	}
+	for _, dir := range []string{
+		c.ChunkParentID,
+		c.FileParentID,
+	} {
+		if fh, err := os.Open(dir); err != nil {
+			if err := os.Mkdir(dir, 0700); err != nil {
+				return nil, err
+			}
+		} else {
+			fh.Close()
+		}
+	}
+
 	return &LocalDrive{config: c}, nil
 }
 
@@ -46,10 +65,10 @@ type LocalDrive struct {
 }
 
 // ListFiles retrieves all of the File objects known to the client.  The return
-// maps from arbitrary unique keys to the sha256sum of the file object.  The
-// keys may be passed to GetFile() to retrieve the corresponding shade.File.
-func (s *LocalDrive) ListFiles() (map[string][]byte, error) {
-	resp := make(map[string][]byte)
+// values are the sha256sum of the file object.  The keys may be passed to
+// GetChunk() to retrieve the corresponding shade.File.
+func (s *LocalDrive) ListFiles() ([][]byte, error) {
+	var resp [][]byte
 	s.Lock()
 	defer s.Unlock()
 	nodes, err := ioutil.ReadDir(s.config.FileParentID)
@@ -63,23 +82,10 @@ func (s *LocalDrive) ListFiles() (map[string][]byte, error) {
 				log.Printf("file with non-hex string value name: %s", n.Name())
 				continue
 			}
-			resp[string(h)] = h
+			resp = append(resp, h)
 		}
 	}
 	return resp, nil
-}
-
-// GetFile retrieves the File described by the ID.
-// The responses are marshalled JSON, which may be encrypted.
-func (s *LocalDrive) GetFile(fileID string) ([]byte, error) {
-	s.Lock()
-	defer s.Unlock()
-	filename := path.Join(s.config.FileParentID, fileID)
-	f, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-	return f, nil
 }
 
 // PutFile writes the metadata describing a new file.
@@ -88,6 +94,10 @@ func (s *LocalDrive) PutFile(sha256sum, data []byte) error {
 	s.Lock()
 	defer s.Unlock()
 	filename := path.Join(s.config.FileParentID, hex.EncodeToString(sha256sum))
+	if fh, err := os.Open(filename); err == nil {
+		fh.Close()
+		return nil
+	}
 	if err := ioutil.WriteFile(filename, data, 0400); err != nil {
 		return err
 	}
@@ -98,12 +108,14 @@ func (s *LocalDrive) PutFile(sha256sum, data []byte) error {
 func (s *LocalDrive) GetChunk(sha256sum []byte) ([]byte, error) {
 	s.RLock()
 	defer s.RUnlock()
-	filename := path.Join(s.config.ChunkParentID, hex.EncodeToString(sha256sum))
-	f, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return nil, err
+	paths := []string{s.config.FileParentID, s.config.ChunkParentID}
+	for _, p := range paths {
+		filename := path.Join(p, hex.EncodeToString(sha256sum))
+		if f, err := ioutil.ReadFile(filename); err == nil {
+			return f, nil
+		}
 	}
-	return f, nil
+	return nil, errors.New("chunk not found")
 }
 
 // PutChunk writes a chunk to local disk
