@@ -172,9 +172,8 @@ func (c *Reader) refresh() error {
 				Children:     nil,
 			}
 			c.Lock()
-			existing, ok := c.nodes[node.Filename]
 			// TODO(asjoyner): handle file + directory collisions
-			if ok && existing.ModifiedTime.After(node.ModifiedTime) {
+			if existing, ok := c.nodes[node.Filename]; ok && existing.ModifiedTime.After(node.ModifiedTime) {
 				c.Unlock()
 				continue
 			}
