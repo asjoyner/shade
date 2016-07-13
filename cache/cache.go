@@ -51,7 +51,7 @@ type Reader struct {
 	sync.RWMutex
 }
 
-func New(clients []drive.Client, t *time.Ticker) (*Reader, error) {
+func NewReader(clients []drive.Client, t *time.Ticker) (*Reader, error) {
 	c := &Reader{
 		clients: clients,
 		nodes: map[string]Node{
