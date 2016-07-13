@@ -2,6 +2,10 @@ package google
 
 import "github.com/asjoyner/shade/drive"
 
+func init() {
+	drive.RegisterProvider("google", NewClient)
+}
+
 func NewClient(c drive.Config) (drive.Client, error) {
 	return &GoogleDrive{}, nil
 }

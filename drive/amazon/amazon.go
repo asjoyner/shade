@@ -14,6 +14,10 @@ import (
 	"github.com/asjoyner/shade/drive"
 )
 
+func init() {
+	drive.RegisterProvider("amazon", NewClient)
+}
+
 type getFilesResponse struct {
 	Count     int64
 	NextToken string

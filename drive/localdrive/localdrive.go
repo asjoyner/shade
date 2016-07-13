@@ -31,6 +31,10 @@ var (
 	)
 )
 
+func init() {
+	drive.RegisterProvider("localdrive", NewClient)
+}
+
 func NewClient(c drive.Config) (drive.Client, error) {
 	if c.ChunkParentID == "" {
 		c.ChunkParentID = *chunkCacheDir
