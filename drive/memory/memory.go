@@ -31,7 +31,7 @@ type MemoryDrive struct {
 
 // ListFiles retrieves all of the File objects known to the client.  The return
 // is a list of sha256sums of the file object.  The keys may be passed to
-// GetFile() to retrieve the corresponding shade.File.
+// GetChunk() to retrieve the corresponding shade.File.
 func (s *MemoryDrive) ListFiles() ([][]byte, error) {
 	s.RLock()
 	defer s.RUnlock()
