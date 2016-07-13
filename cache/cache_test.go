@@ -35,7 +35,7 @@ func TestNodeByPath(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			map[string]Node{"n": Node{}},
+			map[string]Node{"n": {}},
 			false,
 		},
 		{
