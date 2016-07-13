@@ -3,7 +3,6 @@ package localdrive
 import (
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path"
 	"testing"
@@ -14,7 +13,7 @@ import (
 func TestFileRoundTrip(t *testing.T) {
 	dir, err := ioutil.TempDir("", "localdiskTest")
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 	defer tearDown(dir)
 	ld, err := NewClient(drive.Config{
@@ -31,7 +30,7 @@ func TestFileRoundTrip(t *testing.T) {
 func TestChunkRoundTrip(t *testing.T) {
 	dir, err := ioutil.TempDir("", "localdiskTest")
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 	defer tearDown(dir)
 	ld, err := NewClient(drive.Config{
