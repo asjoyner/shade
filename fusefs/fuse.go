@@ -1,4 +1,4 @@
-package main
+package fusefs
 
 // This is a thin layer of glue between the bazil.org/fuse kernel interface
 // and the Shade Drive API.
@@ -44,7 +44,7 @@ type serveConn struct {
 	sync.Mutex
 }
 
-func NewFuseServer(r *cache.Reader, uid, gid uint32, conn *fuse.Conn) *serveConn {
+func New(r *cache.Reader, uid, gid uint32, conn *fuse.Conn) *serveConn {
 	return &serveConn{
 		cache:   r,
 		inode:   NewInodeMap(),
@@ -332,18 +332,11 @@ func (sc *serveConn) open(req *fuse.OpenRequest) {
 		return
 	}
 
-	var hId uint64
-	if !req.Flags.IsReadOnly() { // write access requested
-		if *readOnly {
-			// TODO: if allow_other, require uid == invoking uid to allow writes
-			req.RespondError(fuse.EPERM)
-			return
-		}
-	}
+	// TODO: if allow_other, require uid == invoking uid to allow writes
 
 	// TODO(asjoyner): get the shade.File for the node, stuff it in the Handle
 	f, err := sc.cache.FileByNode(n)
-	hId = sc.allocHandle(req.Header.Node, f)
+	hId := sc.allocHandle(req.Header.Node, f)
 
 	resp := fuse.OpenResponse{Handle: fuse.HandleID(hId)}
 	fuse.Debug(fmt.Sprintf("Open Response: %+v", resp))
@@ -398,12 +391,8 @@ func (sc *serveConn) release(req *fuse.ReleaseRequest) {
 
 // Create file in drive, allocate kernel filehandle for writes
 func (sc *serveConn) create(req *fuse.CreateRequest) {
-	if *readOnly && !req.Flags.IsReadOnly() {
-		req.RespondError(fuse.EPERM)
-		return
-	}
-
 	// TODO(asjoyner): shadeify
+	req.RespondError(fuse.ENOSYS)
 	/*
 		pInode := uint64(req.Header.Node)
 		parent, err := sc.db.FileByInode(pInode)
@@ -465,11 +454,8 @@ func (sc *serveConn) create(req *fuse.CreateRequest) {
 }
 
 func (sc *serveConn) mkdir(req *fuse.MkdirRequest) {
-	if *readOnly {
-		req.RespondError(fuse.EPERM)
-		return
-	}
 	// TODO(asjoyner): shadeify
+	req.RespondError(fuse.ENOSYS)
 	/*
 		// TODO: if allow_other, require uid == invoking uid to allow writes
 		pInode := uint64(req.Header.Node)
@@ -511,11 +497,8 @@ func (sc *serveConn) mkdir(req *fuse.MkdirRequest) {
 // Nota bene: there is no check preventing the removal of a directory which
 // contains files.
 func (sc *serveConn) remove(req *fuse.RemoveRequest) {
-	if *readOnly {
-		req.RespondError(fuse.EPERM)
-		return
-	}
 	// TODO(asjoyner): shadeify
+	req.RespondError(fuse.ENOSYS)
 	// TODO: if allow_other, require uid == invoking uid to allow writes
 	// TODO: consider disallowing deletion of directories with contents.. but what error?
 	/*
@@ -542,14 +525,10 @@ func (sc *serveConn) remove(req *fuse.RemoveRequest) {
 	*/
 }
 
-// TODO(asjoyner): shadeify
 // rename renames a file or directory, optionally reparenting it
 func (sc *serveConn) rename(req *fuse.RenameRequest) {
-	if *readOnly {
-		fmt.Printf("attempt to rename while fs in readonly mode")
-		req.RespondError(fuse.EPERM)
-		return
-	}
+	// TODO(asjoyner): shadeify
+	req.RespondError(fuse.ENOSYS)
 	/*
 		// TODO: if allow_other, require uid == invoking uid to allow writes
 		oldParent, err := sc.db.FileByInode(uint64(req.Header.Node))
@@ -630,13 +609,10 @@ func (sc *serveConn) rename(req *fuse.RenameRequest) {
 	*/
 }
 
-// TODO(asjoyner): shadeify
 // Pass sequential writes on to the correct handle for uploading
 func (sc *serveConn) write(req *fuse.WriteRequest) {
-	if *readOnly {
-		req.RespondError(fuse.EPERM)
-		return
-	}
+	// TODO(asjoyner): shadeify
+	req.RespondError(fuse.ENOSYS)
 	// TODO: if allow_other, require uid == invoking uid to allow writes
 	/*
 		h, err := sc.handleById(req.Handle)

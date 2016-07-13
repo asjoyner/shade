@@ -1,4 +1,4 @@
-package main
+package fusefs
 
 import (
 	"errors"
