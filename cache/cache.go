@@ -220,8 +220,7 @@ func (c *Reader) periodicRefresh(t *time.Ticker) {
 }
 
 func debug(args interface{}) {
-	if !*cacheDebug {
-		return
+	if *cacheDebug {
+		log.Printf("CACHE: %s\n", args)
 	}
-	log.Printf("CACHE: %s\n", args)
 }
