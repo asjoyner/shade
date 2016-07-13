@@ -104,6 +104,6 @@ func main() {
 			os.Exit(1)
 		}
 	}
-
+	// TODO(shanel): Is the return needed?
 	return
 }
