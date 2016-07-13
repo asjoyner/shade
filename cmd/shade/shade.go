@@ -80,6 +80,7 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 	if *readOnly {
 		options = append(options, fuse.ReadOnly())
 	}
+	options = append(options, fuse.NoAppleDouble())
 	c, err := fuse.Mount(mountPoint, options...)
 	if err != nil {
 		fmt.Println("Is the mount point busy?")
