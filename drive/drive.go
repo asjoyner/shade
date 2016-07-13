@@ -3,7 +3,7 @@ package drive
 import (
 	"fmt"
 	"sync"
-	)
+)
 
 // Client is a generic interface to a cloud storage backend.
 type Client interface {
