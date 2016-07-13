@@ -86,7 +86,7 @@ func (c *Reader) FileByNode(n Node) (*shade.File, error) {
 	var fj []byte
 	var err error
 	for _, client := range c.clients {
-		fj, err = client.GetFile(n.Sha256sum)
+		fj, err = client.GetChunk(n.Sha256sum)
 		if err != nil {
 			log.Printf("Failed to fetch %s: %s", n.Sha256sum, err)
 			continue
@@ -122,6 +122,7 @@ func (c *Reader) GetChunk(sha256sum []byte) {
 // refresh updates the cache
 func (c *Reader) refresh() error {
 	debug("Begining cache refresh cycle.")
+	// key is a string([]byte) representation of the file's SHA2
 	knownNodes := make(map[string]bool)
 	for _, client := range c.clients {
 		lfm, err := client.ListFiles()
@@ -130,24 +131,24 @@ func (c *Reader) refresh() error {
 		}
 		debug(fmt.Sprintf("Found %d file(s) via %s", len(lfm), client.GetConfig().Provider))
 		// fetch all those files into the local disk cache
-		for id, sha256sum := range lfm {
+		for _, sha256sum := range lfm {
 			// check if we have already processed this Node
 			if knownNodes[string(sha256sum)] {
 				continue // we've already processed this file
 			}
 
 			// fetch the file Chunk
-			f, err := client.GetFile(id)
+			f, err := client.GetChunk(sha256sum)
 			if err != nil {
 				// TODO(asjoyner): if !client.Local()... retry?
-				log.Printf("Failed to fetch %s with fileId %s: %s", sha256sum, id, err)
+				log.Printf("Failed to fetch file %x: %s", sha256sum, err)
 				continue
 			}
 			// ensure this file is known to all the writable clients
 			for _, lc := range c.clients {
 				if lc.GetConfig().Write {
 					if err := lc.PutFile(sha256sum, f); err != nil {
-						log.Printf("Failed to store checksum %s in %s: %s", sha256sum, client.GetConfig().Provider, err)
+						log.Printf("Failed to store checksum %x in %s: %s", sha256sum, client.GetConfig().Provider, err)
 					}
 				}
 			}
@@ -155,7 +156,7 @@ func (c *Reader) refresh() error {
 			// unmarshal and populate c.nodes as the shade.files go by
 			file := &shade.File{}
 			if err := json.Unmarshal(f, file); err != nil {
-				log.Printf("Failed to unmarshal fileID %s: %s", id, err)
+				log.Printf("Failed to unmarshal file %x: %s", sha256sum, err)
 				continue
 			}
 			node := Node{

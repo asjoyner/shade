@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"sync"
 
 	"github.com/asjoyner/shade/drive"
 )
@@ -47,14 +48,17 @@ type AmazonCloudDrive struct {
 	client *http.Client
 	ep     *Endpoint
 	config drive.Config
+	// files maps from the string([]byte) representation of the file's SHA2 to
+	// the corresponding fileID in CloudDrive
+	files        map[string]string
+	sync.RWMutex // protects files
 }
 
-// ListFiles retrieves all of the File objects known to the client.  The return
-// maps from arbitrary unique keys to the sha256sum of the file object.  The
-// keys may be passed to GetFile() to retrieve the corresponding shade.File.
-func (s *AmazonCloudDrive) ListFiles() (map[string][]byte, error) {
+// ListFiles retrieves all of the File objects known to the client, and returns
+// the corresponding sha256sum of the file object.  Those may be passed to
+// GetChunk() to retrieve the corresponding shade.File.
+func (s *AmazonCloudDrive) ListFiles() ([][]byte, error) {
 	// a list mapping the ID(s) of the shade.File(s) in CloudDrive to sha256sum
-	fileIDs := make(map[string][]byte)
 	filters := "kind:FILE AND labels:shadeFile"
 	if s.config.FileParentID != "" {
 		filters += " AND parents:s.config.FileParentID"
@@ -74,19 +78,29 @@ func (s *AmazonCloudDrive) ListFiles() (map[string][]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		s.Lock()
 		for _, f := range gfResp.Data {
 			b, err := hex.DecodeString(f.Name)
 			if err != nil {
 				fmt.Printf("Shade file %q with invalid hex in filename: %s\n", f.Name, err)
 			}
-			fileIDs[f.ID] = b
+			s.files[string(b)] = f.ID
 		}
+		s.Unlock()
 		if gfResp.NextToken == "" {
 			break
 		}
 		nextToken = gfResp.NextToken
 	}
-	return fileIDs, nil
+
+	s.RLock()
+	defer s.RUnlock()
+	resp := make([][]byte, 0, len(s.files))
+	for sha256sum, _ := range s.files {
+		resp = append(resp, []byte(sha256sum))
+	}
+	return resp, nil
 }
 
 // GetFile retrieves the File described by the ID.
@@ -118,29 +132,35 @@ func (s *AmazonCloudDrive) PutFile(sha256sum, contents []byte) error {
 	return nil
 }
 
-// GetChunk retrieves a chunk with a given SHA-256 sum
+// GetChunk retrieves a chunk with a given SHA-256 sum.
+// It first gets the ID of the chunk with the named sha256sum, possibly from a
+// cache.  If then fetches the contents of the chunk from CloudDrive.
+//
+// The cache is especially helpful for shade.File objects, which are
+// efficiently looked up on each call of ListFiles.
 func (s *AmazonCloudDrive) GetChunk(sha256sum []byte) ([]byte, error) {
-	// First, get the ID of the file with the named sha256 sum
-	// TODO(asjoyner): keep a cache of this mapping to reduce read latency?
-	filters := fmt.Sprintf("kind:FILE AND labels:shadeChunk AND name:%x", sha256sum)
-	if s.config.ChunkParentID != "" {
-		filters += " AND parents:s.config.ChunkParentID"
+	s.RLock()
+	fileID, ok := s.files[string(sha256sum)]
+	s.RUnlock()
+
+	if !ok { // we have to lookup this fileID
+		filters := fmt.Sprintf("kind:FILE AND labels:shadeChunk AND name:%x", sha256sum)
+		v := url.Values{}
+		v.Set("filters", filters)
+
+		gfResp, err := s.getMetadata(v)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(gfResp.Data) > 1 {
+			return nil, fmt.Errorf("More than one file with SHA sum: %x", sha256sum)
+		}
+		fileID = gfResp.Data[0].ID
 	}
 
-	v := url.Values{}
-	v.Set("filters", filters)
-
-	gfResp, err := s.getMetadata(v)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(gfResp.Data) > 1 {
-		return nil, err
-	}
-
-	// Next, get the contents of the fileIDs.
-	c, err := s.getFileContents(gfResp.Data[0].ID)
+	// Get the contents of the fileIDs.
+	c, err := s.getFileContents(fileID)
 	if err != nil {
 		return nil, err
 	}

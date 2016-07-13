@@ -2,14 +2,11 @@ package drive
 
 // Client is a generic interface to a cloud storage backend.
 type Client interface {
-	// ListFiles retrieves all of the File objects known to the client.  The return
-	// maps from arbitrary unique keys to the sha256sum of the file object.  The
-	// keys may be passed to GetFile() to retrieve the corresponding shade.File.
-	ListFiles() (map[string][]byte, error)
-
-	// GetFile retrieves the File object described by the ID
-	// The response is marshalled JSON, which may be encrypted.
-	GetFile(fileID string) ([]byte, error)
+	// ListFiles retrieves the sha256sum of all of the File objects known to the
+	// client.  The elements of the slice may be passed to GetChunk() to retrieve
+	// the corresponding shade.File object.  It will be marshaled JSON,
+	// optionally encrypted.
+	ListFiles() ([][]byte, error)
 
 	// GetChunk retrieves a chunk with a given SHA-256 sum
 	GetChunk(sha256 []byte) ([]byte, error)
