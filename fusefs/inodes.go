@@ -50,6 +50,6 @@ func (im *inodeMap) FromPath(p string) uint64 {
 
 func (im *inodeMap) Release(inode uint64) {
 	im.Lock()
+	defer im.Unlock()
 	delete(im.inodes, inode)
-	im.Unlock()
 }
