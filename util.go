@@ -16,7 +16,6 @@ func ConfigDir() string {
 	case "linux", "freebsd":
 		return path.Join(os.Getenv("HOME"), ".shade")
 	default:
-		// TODO(shanel): Should this be log instead of fmt?
 		log.Printf("TODO: ConfigDir on GOOS %q", runtime.GOOS)
 		return "."
 	}
