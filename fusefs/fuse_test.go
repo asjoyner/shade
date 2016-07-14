@@ -49,13 +49,12 @@ func TestFuseRead(t *testing.T) {
 		if err != nil {
 			t.Fatalf("fuse server initialization failed: %s", err)
 		}
-		<-conn.Ready
-		if err := conn.MountError; err != nil {
-			t.Fatalf("fuse exited with an error: %s", err)
-		}
 	}()
 
-	time.Sleep(3 * time.Second)
+	<-conn.Ready // returns when the FS is usable
+	if conn.MountError != nil {
+		t.Fatalf("fuse exited with an error: %s", err)
+	}
 
 	if err := fuse.Unmount(mountPoint); err != nil {
 		t.Fatalf("could not Unmount test dir: %s", err)
