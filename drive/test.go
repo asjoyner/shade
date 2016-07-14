@@ -18,7 +18,7 @@ func TestFileRoundTrip(t *testing.T, c Client) {
 		"4b1dfeed": "anApple?",
 	}
 
-	// Populate testFiles into the memory client
+	// Populate testFiles into the client
 	for stringSum, file := range testFiles {
 		sum, err := hex.DecodeString(stringSum)
 		if err != nil {
@@ -26,6 +26,17 @@ func TestFileRoundTrip(t *testing.T, c Client) {
 		}
 		if err := c.PutFile([]byte(sum), []byte(file)); err != nil {
 			t.Fatal("Failed to put test file: ", err)
+		}
+	}
+
+	// Populate testFiles into the client
+	for stringSum, file := range testFiles {
+		sum, err := hex.DecodeString(stringSum)
+		if err != nil {
+			t.Fatalf("testFile %s is broken: %s", stringSum, err)
+		}
+		if err := c.PutFile([]byte(sum), []byte(file)); err != nil {
+			t.Fatal("Failed to put test file a second time: ", err)
 		}
 	}
 
@@ -69,7 +80,16 @@ func TestChunkRoundTrip(t *testing.T, c Client) {
 		chunkSum := sha256.Sum256(chunk)
 		err := c.PutChunk(chunkSum[:], chunk)
 		if err != nil {
-			t.Fatalf("Failed to put test file \"%x\": ", chunkSum, err)
+			t.Fatalf("Failed to put chunk \"%x\": %s", chunkSum, err)
+		}
+	}
+
+	// Populate them all again, which should not return an error.
+	for _, chunk := range testChunks {
+		chunkSum := sha256.Sum256(chunk)
+		err := c.PutChunk(chunkSum[:], chunk)
+		if err != nil {
+			t.Fatalf("Failed to put test chunk a second time \"%x\": %s", chunkSum, err)
 		}
 	}
 
