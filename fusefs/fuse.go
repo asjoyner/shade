@@ -32,6 +32,7 @@ const blockSize uint32 = 4096
 
 // serveConn holds the state about the fuse connection
 type serveConn struct {
+	sync.Mutex
 	//db         *drive_db.DriveDB
 	//service    *drive.Service
 	cache   *cache.Reader
@@ -43,7 +44,6 @@ type serveConn struct {
 	conn    *fuse.Conn
 	handles []handle              // index is the handleid, inode=0 if free
 	writers map[int]io.PipeWriter // index matches fh
-	sync.Mutex
 }
 
 func New(r *cache.Reader, conn *fuse.Conn) *serveConn {

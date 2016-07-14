@@ -47,9 +47,9 @@ func (n *Node) Synthetic() bool {
 //
 // TODO(asjoyner): implement disk caching of data blocks.
 type Reader struct {
+	sync.RWMutex
 	clients []drive.Client
 	nodes   map[string]Node // full path to node
-	sync.RWMutex
 }
 
 // NewReader returns a new fully initialized Reader object.

@@ -57,13 +57,13 @@ func NewClient(c drive.Config) (drive.Client, error) {
 
 // Drive is a representation of the Amazon Cloud storage system.
 type Drive struct {
-	client *http.Client
-	ep     *Endpoint
-	config drive.Config
+	sync.RWMutex // protects files
+	client       *http.Client
+	ep           *Endpoint
+	config       drive.Config
 	// files maps from the string([]byte) representation of the file's SHA2 to
 	// the corresponding fileID in Drive
-	files        map[string]string
-	sync.RWMutex // protects files
+	files map[string]string
 }
 
 // ListFiles retrieves all of the File objects known to the client, and returns

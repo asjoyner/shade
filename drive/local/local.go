@@ -61,8 +61,8 @@ func NewClient(c drive.Config) (drive.Client, error) {
 }
 
 type Drive struct {
-	config drive.Config
 	sync.RWMutex
+	config drive.Config
 }
 
 // ListFiles retrieves all of the File objects known to the client.  The return

@@ -8,9 +8,9 @@ import (
 // inodeMap provides a mapping from fuse.Node to and from the Path that it
 // corresponds to.
 type inodeMap struct {
+	sync.RWMutex
 	inodes    map[uint64]string
 	lastInode uint64
-	sync.RWMutex
 }
 
 func NewInodeMap() inodeMap {

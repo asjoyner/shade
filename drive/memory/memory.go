@@ -23,10 +23,10 @@ func NewClient(c drive.Config) (drive.Client, error) {
 }
 
 type Drive struct {
+	sync.RWMutex
 	config drive.Config
 	files  [][]byte
 	chunks map[string][]byte
-	sync.RWMutex
 }
 
 // ListFiles retrieves all of the File objects known to the client.  The return
