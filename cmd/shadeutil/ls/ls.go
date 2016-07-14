@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"text/tabwriter"
+	"time"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/config"
@@ -45,35 +47,41 @@ func (p *lsCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) su
 	// read in the config
 	clients, err := config.Clients(p.config)
 	if err != nil {
-		fmt.Printf("could not initialize clients: %s", err)
+		fmt.Printf("could not initialize clients: %v", err)
 		return subcommands.ExitFailure
 	}
 
 	file := &shade.File{}
+	w := &tabwriter.Writer{}
+	w.Init(os.Stdout, 0, 2, 1, ' ', 0)
+	if p.long {
+		fmt.Fprint(w, "\tid\t(sha)\tsize\tchunksize\tchunks\tmtime\tfilename\n")
+	}
 	for _, client := range clients {
 		fmt.Println(client.GetConfig().Provider)
 		lfm, err := client.ListFiles()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "could not get files: %s\n", err)
+			fmt.Fprintf(os.Stderr, "could not get files: %v\n", err)
 			return subcommands.ExitFailure
 		}
 		for id, sha256sum := range lfm {
 			fileJSON, err := client.GetChunk(sha256sum)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "could not get file %q: %s\n", id, err)
+				fmt.Fprintf(os.Stderr, "could not get file %q: %v\n", id, err)
 				continue
 			}
 			err = json.Unmarshal(fileJSON, file)
 			if err != nil {
-				fmt.Printf("failed to unmarshal: %s\n", err)
+				fmt.Printf("failed to unmarshal: %v\n", err)
 				continue
 			}
 			if p.long {
-				fmt.Printf("  %s (%x):\n    %s\n", id, sha256sum, file)
+				fmt.Fprintf(w, "\t%v\t(%x)\t%v\t%v\t%v\t%v\t%v\n", id, sha256sum, file.Filesize, file.Chunksize, file.Chunks, file.ModifiedTime.Format(time.Stamp), file.Filename)
 			} else {
-				fmt.Printf("  %s (%x)\n", id, sha256sum)
+				fmt.Fprintf(w, "\t%v\n", file.Filename)
 			}
 		}
+		w.Flush()
 	}
 	return subcommands.ExitSuccess
 }
