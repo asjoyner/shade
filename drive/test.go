@@ -22,14 +22,14 @@ func TestFileRoundTrip(t *testing.T, c Client) {
 			t.Fatalf("testFile %s is broken: %s", stringSum, err)
 		}
 		if err := c.PutFile([]byte(sum), []byte(file)); err != nil {
-			t.Fatalf("Failed to put test file: ", err)
+			t.Fatalf("Failed to put test file: %v", err)
 		}
 	}
 
 	// Get all the files which were populated
 	files, err := c.ListFiles()
 	if err != nil {
-		t.Errorf("Failed to retrieve file map: ", err)
+		t.Errorf("Failed to retrieve file map: %v", err)
 		return
 	}
 	for stringSum := range testFiles {
@@ -64,7 +64,7 @@ func TestChunkRoundTrip(t *testing.T, c Client) {
 		chunkSum := sha256.Sum256(chunk)
 		err := c.PutChunk(chunkSum[:], chunk)
 		if err != nil {
-			t.Fatalf("Failed to put test file \"%x\": ", chunkSum, err)
+			t.Fatalf("Failed to put test file \"%x\": %v", chunkSum, err)
 		}
 	}
 
