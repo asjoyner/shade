@@ -7,9 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"os/user"
 	"path"
-	"strconv"
 	"time"
 
 	"bazil.org/fuse"
@@ -97,7 +95,7 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	go func() {
-		for _ = range sig {
+		for range sig {
 			if err := fuse.Unmount(mountPoint); err != nil {
 				log.Printf("fuse.Unmount failed: %v", err)
 			}
@@ -111,55 +109,30 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 // server, and services requests from the fuse kernel filesystem until it is
 // unmounted.
 func serviceFuse(conn *fuse.Conn, clients []drive.Client) error {
-	uid, gid, err := uidAndGid()
-	if err != nil {
-		return fmt.Errorf("unable to get UID/GID of current user: %v", err)
-	}
 	refresh := time.NewTicker(5 * time.Minute)
-	r, err := cache.New(clients, refresh)
+	r, err := cache.NewReader(clients, refresh)
 	if err != nil {
 		return err
 	}
-	ffs := fusefs.New(r, uid, gid, conn)
+	ffs := fusefs.New(r, conn)
 	err = ffs.Serve()
 	if err != nil {
 		return fmt.Errorf("fuse server initialization failed: %s", err)
 	}
 
-	// block until unmounted
-	<-conn.Ready
 	// check if the mount process has an error to report
+	<-conn.Ready
 	if err := conn.MountError; err != nil {
 		return err
 	}
 	return nil
 }
 
-// uidAndGid returns those values for the process, or err
-func uidAndGid() (uint32, uint32, error) {
-	userCurrent, err := user.Current()
-	if err != nil {
-		return 0, 0, err
-	}
-	uidInt, err := strconv.Atoi(userCurrent.Uid)
-	if err != nil {
-		return 0, 0, err
-	}
-	uid := uint32(uidInt)
-	gidInt, err := strconv.Atoi(userCurrent.Gid)
-	if err != nil {
-		return 0, 0, err
-	}
-	gid := uint32(gidInt)
-
-	return uid, gid, nil
-}
-
 func sanityCheck(mountPoint string) error {
 	fileInfo, err := os.Stat(mountPoint)
 	if os.IsNotExist(err) {
 		if err := os.MkdirAll(mountPoint, 0777); err != nil {
-			return fmt.Errorf("mountpoint does not exist, could not create it.")
+			return fmt.Errorf("mountpoint does not exist, could not create it")
 		}
 		return nil
 	}
