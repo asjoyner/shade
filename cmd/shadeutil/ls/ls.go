@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/config"
@@ -18,25 +19,31 @@ func init() {
 	subcommands.Register(&lsCmd{}, "")
 }
 
+var (
+	defaultConfig = path.Join(shade.ConfigDir(), "config.json")
+)
+
 type lsCmd struct {
-	long bool
+	long   bool
+	config string
 }
 
 func (*lsCmd) Name() string     { return "ls" }
 func (*lsCmd) Synopsis() string { return "List files in the respository." }
 func (*lsCmd) Usage() string {
-	return `ls [-l]:
+	return `ls [-l] [-f FILE]:
   List all the files in the configured shade repositories.
 `
 }
 
 func (p *lsCmd) SetFlags(f *flag.FlagSet) {
-	f.BoolVar(&p.long, "l", false, "long listing")
+	f.BoolVar(&p.long, "l", false, "Long format listing")
+	f.StringVar(&p.config, "f", defaultConfig, "Path to shade config")
 }
 
 func (p *lsCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	// read in the config
-	clients, err := config.Clients()
+	clients, err := config.Clients(p.config)
 	if err != nil {
 		fmt.Printf("could not initialize clients: %s", err)
 		return subcommands.ExitFailure
@@ -51,7 +58,7 @@ func (p *lsCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) su
 			return subcommands.ExitFailure
 		}
 		for id, sha256sum := range lfm {
-			fileJSON, err := client.GetFile(id)
+			fileJSON, err := client.GetChunk(sha256sum)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "could not get file %q: %s\n", id, err)
 				continue
