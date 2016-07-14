@@ -86,7 +86,7 @@ func main() {
 		}
 
 		manifest.Chunks = append(manifest.Chunks, chunk)
-		chunk.Index += 1
+		chunk.Index++
 	}
 
 	jm, err := json.Marshal(manifest)

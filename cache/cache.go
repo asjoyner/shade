@@ -21,7 +21,7 @@ var (
 	cacheDebug      = flag.Bool("cacheDebug", false, "Print cache debugging traces")
 )
 
-// A very compact representation of a file
+// Node is a very compact representation of a file
 type Node struct {
 	Filename     string
 	Filesize     uint64
@@ -31,6 +31,7 @@ type Node struct {
 	Children map[string]bool
 }
 
+// Synthetic notes whether the node has a shasum.
 func (n *Node) Synthetic() bool {
 	if n.Sha256sum == nil {
 		return true
@@ -51,6 +52,7 @@ type Reader struct {
 	sync.RWMutex
 }
 
+// NewReader returns a new fully initialized Reader object.
 func NewReader(clients []drive.Client, t *time.Ticker) (*Reader, error) {
 	c := &Reader{
 		clients: clients,
@@ -107,6 +109,7 @@ func (c *Reader) FileByNode(n Node) (*shade.File, error) {
 	return unmarshalChunk(fj, n.Sha256sum)
 }
 
+// HasChild returns whether parent has a 'child' node child.
 func (c *Reader) HasChild(parent, child string) bool {
 	c.RLock()
 	defer c.RUnlock()
@@ -121,6 +124,7 @@ func (c *Reader) NumNodes() int {
 	return len(c.nodes)
 }
 
+// GetChunk is not yet implemented.
 func (c *Reader) GetChunk(sha256sum []byte) {
 }
 

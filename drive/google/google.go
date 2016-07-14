@@ -6,39 +6,44 @@ func init() {
 	drive.RegisterProvider("google", NewClient)
 }
 
+// NewClient returns a new Drive client.
+// TODO(shanel): Should this just be New? or NewDrive?
 func NewClient(c drive.Config) (drive.Client, error) {
-	return &GoogleDrive{}, nil
+	return &Drive{}, nil
 }
 
-type GoogleDrive struct {
+// Drive represents access to the Google Drive storage system.
+type Drive struct {
 	config drive.Config
 }
 
 // ListFiles retrieves all of the File objects known to the client, and returns
 // the corresponding sha256sum of the file object.  Those may be passed to
 // GetChunk() to retrieve the corresponding shade.File.
-func (s *GoogleDrive) ListFiles() ([][]byte, error) {
+func (s *Drive) ListFiles() ([][]byte, error) {
 	return nil, nil
 }
 
 // PutFile writes the metadata describing a new file.
 // f should be marshalled JSON, and may be encrypted.
-func (s *GoogleDrive) PutFile(sha256, f []byte) error {
+func (s *Drive) PutFile(sha256, f []byte) error {
 	return nil
 }
 
 // GetChunk retrieves a chunk with a given SHA-256 sum
-func (s *GoogleDrive) GetChunk(sha256 []byte) ([]byte, error) {
+func (s *Drive) GetChunk(sha256 []byte) ([]byte, error) {
 	return nil, nil
 }
 
 // PutChunk writes a chunk and returns its SHA-256 sum
-func (s *GoogleDrive) PutChunk(sha256 []byte, chunk []byte) error {
+func (s *Drive) PutChunk(sha256 []byte, chunk []byte) error {
 	return nil
 }
 
-func (s *GoogleDrive) GetConfig() drive.Config {
+// GetConfig returns the associated drive.Config object.
+func (s *Drive) GetConfig() drive.Config {
 	return s.config
 }
 
-func (s *GoogleDrive) Local() bool { return false }
+// Local returns whether access is local.
+func (s *Drive) Local() bool { return false }

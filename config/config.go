@@ -49,6 +49,7 @@ func configPath() string {
 	return path.Join(shade.ConfigDir(), "config.json")
 }
 
+// Clients initializes and returns the set of drive clients.
 func Clients() ([]drive.Client, error) {
 	configs, err := Read()
 	if err != nil {

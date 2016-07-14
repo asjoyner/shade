@@ -1,4 +1,4 @@
-// localdrive is a local storage backend for Shade.
+// Package localdrive is a local storage backend for Shade.
 //
 // It stores files and chunks locally to disk.  You may define full filepaths
 // to store the files and chunks in the config, or via flag.  If you define
@@ -36,6 +36,7 @@ func init() {
 	drive.RegisterProvider("localdrive", NewClient)
 }
 
+// NewClient returns a fully initlized local client.
 func NewClient(c drive.Config) (drive.Client, error) {
 	if c.ChunkParentID == "" {
 		c.ChunkParentID = *chunkCacheDir

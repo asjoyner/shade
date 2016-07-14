@@ -37,6 +37,7 @@ type fileMetadata struct {
 	//ContentType  string
 }
 
+// NewClient returns an initialized CloudDrive drive.Client object.
 func NewClient(c drive.Config) (drive.Client, error) {
 	client, err := getOAuthClient(c)
 	if err != nil {
@@ -46,7 +47,7 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &AmazonCloudDrive{
+	return &CloudDrive{
 		client: client,
 		ep:     ep,
 		config: c,
@@ -54,7 +55,8 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	}, nil
 }
 
-type AmazonCloudDrive struct {
+// CloudDrive is a representation of the Amazon Cloud storage system.
+type CloudDrive struct {
 	client *http.Client
 	ep     *Endpoint
 	config drive.Config
@@ -67,7 +69,7 @@ type AmazonCloudDrive struct {
 // ListFiles retrieves all of the File objects known to the client, and returns
 // the corresponding sha256sum of the file object.  Those may be passed to
 // GetChunk() to retrieve the corresponding shade.File.
-func (s *AmazonCloudDrive) ListFiles() ([][]byte, error) {
+func (s *CloudDrive) ListFiles() ([][]byte, error) {
 	// a list mapping the ID(s) of the shade.File(s) in CloudDrive to sha256sum
 	filters := "kind:FILE AND labels:shadeFile"
 	if s.config.FileParentID != "" {
@@ -115,7 +117,7 @@ func (s *AmazonCloudDrive) ListFiles() ([][]byte, error) {
 
 // PutFile writes the manifest describing a new file.
 // f should be marshalled JSON, and may be encrypted.
-func (s *AmazonCloudDrive) PutFile(sha256sum, contents []byte) error {
+func (s *CloudDrive) PutFile(sha256sum, contents []byte) error {
 	filename := hex.EncodeToString(sha256sum)
 	metadata := map[string]interface{}{
 		"kind":   "FILE",
@@ -138,7 +140,7 @@ func (s *AmazonCloudDrive) PutFile(sha256sum, contents []byte) error {
 //
 // The cache is especially helpful for shade.File objects, which are
 // efficiently looked up on each call of ListFiles.
-func (s *AmazonCloudDrive) GetChunk(sha256sum []byte) ([]byte, error) {
+func (s *CloudDrive) GetChunk(sha256sum []byte) ([]byte, error) {
 	s.RLock()
 	fileID, ok := s.files[string(sha256sum)]
 	s.RUnlock()
@@ -169,7 +171,7 @@ func (s *AmazonCloudDrive) GetChunk(sha256sum []byte) ([]byte, error) {
 }
 
 // PutChunk writes a chunk and returns its SHA-256 sum
-func (s *AmazonCloudDrive) PutChunk(sha256sum []byte, chunk []byte) error {
+func (s *CloudDrive) PutChunk(sha256sum []byte, chunk []byte) error {
 	s.RLock()
 	_, ok := s.files[string(sha256sum)]
 	s.RUnlock()
@@ -193,14 +195,16 @@ func (s *AmazonCloudDrive) PutChunk(sha256sum []byte, chunk []byte) error {
 	return nil
 }
 
-func (s *AmazonCloudDrive) GetConfig() drive.Config {
+// GetConfig returns the CloudDrive's associated Config object.
+func (s *CloudDrive) GetConfig() drive.Config {
 	return s.config
 }
 
-func (s *AmazonCloudDrive) Local() bool { return false }
+// Local returns whether the drive being accessed is local.
+func (s *CloudDrive) Local() bool { return false }
 
 // uploadFile pushes the file with the associated metadata describing it
-func (s *AmazonCloudDrive) uploadFile(filename string, chunk []byte, metadata interface{}) error {
+func (s *CloudDrive) uploadFile(filename string, chunk []byte, metadata interface{}) error {
 	body, ctype, err := mimeEncode(filename, chunk, metadata)
 	if err != nil {
 		return err
@@ -269,7 +273,7 @@ func mimeEncode(filename string, data []byte, metadata interface{}) (io.Reader, 
 // getMetadata retrieves the metadata of at most 200 shade.File(s) stored
 // in CloudDrive, unmarshals the JSON and returns them.  Use NextToken to
 // request the next set of responses.
-func (s *AmazonCloudDrive) getMetadata(v url.Values) (getFilesResponse, error) {
+func (s *CloudDrive) getMetadata(v url.Values) (getFilesResponse, error) {
 	// URL from docs here:
 	// https://developer.amazon.com/public/apis/experience/cloud-drive/content/nodes
 	req := fmt.Sprintf("%s/nodes?%s", s.ep.MetadataURL(), v.Encode())
@@ -295,7 +299,7 @@ func (s *AmazonCloudDrive) getMetadata(v url.Values) (getFilesResponse, error) {
 // getFileContents downloads the contents of a given file ID from CloudDrive
 // Documentation on the download URL and parameters are here:
 // https://developer.amazon.com/public/apis/experience/cloud-drive/content/nodes
-func (s *AmazonCloudDrive) getFileContents(id string) ([]byte, error) {
+func (s *CloudDrive) getFileContents(id string) ([]byte, error) {
 	url := fmt.Sprintf("%snodes/%s/content", s.ep.ContentURL(), id)
 	resp, err := s.client.Get(url)
 	if err != nil {

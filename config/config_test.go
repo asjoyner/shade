@@ -129,7 +129,7 @@ func TestParseConfig(t *testing.T) {
 			} else if err != nil && tc.err != "" && !strings.Contains(err.Error(), tc.err) {
 				t.Errorf("test %q wanted err: %q, got err: %q", tc.name, tc.err, err)
 			} else if !reflect.DeepEqual(tc.want, configs) {
-				t.Errorf("test %q wanted: %q, got: %q", tc.name, tc.want, configs)
+				t.Errorf("test %q wanted: %v, got: %v", tc.name, tc.want, configs)
 			}
 		}
 	}
