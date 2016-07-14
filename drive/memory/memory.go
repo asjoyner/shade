@@ -31,7 +31,7 @@ type MemoryDrive struct {
 
 // ListFiles retrieves all of the File objects known to the client.  The return
 // is a list of sha256sums of the file object.  The keys may be passed to
-// GetFile() to retrieve the corresponding shade.File.
+// GetChunk() to retrieve the corresponding shade.File.
 func (s *MemoryDrive) ListFiles() ([][]byte, error) {
 	s.RLock()
 	defer s.RUnlock()
@@ -42,9 +42,9 @@ func (s *MemoryDrive) ListFiles() ([][]byte, error) {
 // f should be marshalled JSON, and may be encrypted.
 func (s *MemoryDrive) PutFile(sha256sum, f []byte) error {
 	s.Lock()
+	defer s.Unlock()
 	s.files = append(s.files, sha256sum)
 	s.chunks[string(sha256sum)] = f
-	s.Unlock()
 	return nil
 }
 
