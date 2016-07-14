@@ -21,7 +21,7 @@ var (
 	cacheDebug      = flag.Bool("cacheDebug", false, "Print cache debugging traces")
 )
 
-// A very compact representation of a file
+// Node is a very compact representation of a file
 type Node struct {
 	Filename     string
 	Filesize     uint64
@@ -31,6 +31,7 @@ type Node struct {
 	Children map[string]bool
 }
 
+// Synthetic returns true for synthetically created directories.
 func (n *Node) Synthetic() bool {
 	if n.Sha256sum == nil {
 		return true
@@ -38,19 +39,19 @@ func (n *Node) Synthetic() bool {
 	return false
 }
 
-// Reader is a wrapper around a slice of cloud storage backends.  It presents an
-// interface to query for the union of the set of known files by an integer ID,
-// which will be stable across single processes invoking this cache, a node
-// representing that file, or a single chunk of that file.  It can also cache a
-// configurable quantity of chunks to disk.
-//
-// TODO(asjoyner): implement disk caching of data blocks.
+// Reader is a wrapper around a slice of cloud storage backends.  It presents
+// an interface to query for the union of the set of known files by path, and
+// returns a node representing that file.
 type Reader struct {
 	clients []drive.Client
 	nodes   map[string]Node // full path to node
 	sync.RWMutex
 }
 
+// NewReader queries the provided clients, discovers all of their
+// shade.File(s), and populates any Writable clients with the discovered
+// File(s).  It returns a Reader object which is ready to answer questions
+// about the nodes in the file tree.
 func NewReader(clients []drive.Client, t *time.Ticker) (*Reader, error) {
 	c := &Reader{
 		clients: clients,
@@ -74,8 +75,10 @@ func (c *Reader) NodeByPath(p string) (Node, error) {
 	if n, ok := c.nodes[p]; ok {
 		return n, nil
 	}
-	// TODO(shanel): Should this be debug?
-	log.Printf("%+v\n", c.nodes)
+	debug("known nodes:\n")
+	for _, n := range c.nodes {
+		debug(fmt.Sprintf("%+v\n", n))
+	}
 	return Node{}, fmt.Errorf("no such node: %q", p)
 }
 
@@ -107,6 +110,8 @@ func (c *Reader) FileByNode(n Node) (*shade.File, error) {
 	return unmarshalChunk(fj, n.Sha256sum)
 }
 
+// HasChild returns true if child exists immediately below parent in the file
+// tree.
 func (c *Reader) HasChild(parent, child string) bool {
 	c.RLock()
 	defer c.RUnlock()
@@ -119,9 +124,6 @@ func (c *Reader) NumNodes() int {
 	c.RLock()
 	defer c.RUnlock()
 	return len(c.nodes)
-}
-
-func (c *Reader) GetChunk(sha256sum []byte) {
 }
 
 // refresh updates the cache

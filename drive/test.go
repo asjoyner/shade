@@ -8,6 +8,9 @@ import (
 	"testing"
 )
 
+// TestFileRoundTrip is a helper function, recommended from use in testing
+// specific implementations of drive.Client.  This helps reduce duplication,
+// and to ensure they have uniform behavior.
 func TestFileRoundTrip(t *testing.T, c Client) {
 	testFiles := map[string]string{
 		"deadbeef": "kindaLikeJSON",
@@ -22,15 +25,14 @@ func TestFileRoundTrip(t *testing.T, c Client) {
 			t.Fatalf("testFile %s is broken: %s", stringSum, err)
 		}
 		if err := c.PutFile([]byte(sum), []byte(file)); err != nil {
-			t.Fatalf("Failed to put test file: ", err)
+			t.Fatal("Failed to put test file: ", err)
 		}
 	}
 
 	// Get all the files which were populated
 	files, err := c.ListFiles()
 	if err != nil {
-		t.Errorf("Failed to retrieve file map: ", err)
-		return
+		t.Fatalf("Failed to retrieve file map: %s", err)
 	}
 	for stringSum := range testFiles {
 		sum, err := hex.DecodeString(stringSum)
@@ -45,11 +47,14 @@ func TestFileRoundTrip(t *testing.T, c Client) {
 		}
 		if !found {
 			t.Errorf("test file not returned: %s", stringSum)
-			//log.Printf("%+v\n", lfm)
+			t.Logf("%+v\n", files)
 		}
 	}
 }
 
+// TestChunkRoundTrip is a helper function, recommended from use in testing
+// specific implementations of drive.Client.  This helps reduce duplication,
+// and to ensure they have uniform behavior.
 func TestChunkRoundTrip(t *testing.T, c Client) {
 	// Generate some random test chunks
 	testChunks := make([][]byte, 100)

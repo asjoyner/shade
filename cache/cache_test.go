@@ -22,8 +22,7 @@ func TestSynthetic(t *testing.T) {
 		b := Node{
 			Sha256sum: test.sha,
 		}
-		got := b.Synthetic()
-		if got != test.want {
+		if got := b.Synthetic(); got != test.want {
 			t.Fatalf("Synthetic() == %v; want %v", got, test.want)
 		}
 	}
