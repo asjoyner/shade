@@ -29,7 +29,7 @@ func TestFileRoundTrip(t *testing.T, c Client) {
 		}
 	}
 
-	// Populate testFiles into the client
+	// Populate them all again, which should not return an error.
 	for stringSum, file := range testFiles {
 		sum, err := hex.DecodeString(stringSum)
 		if err != nil {
