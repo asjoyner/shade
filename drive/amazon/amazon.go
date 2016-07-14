@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -92,7 +93,7 @@ func (s *AmazonCloudDrive) ListFiles() ([][]byte, error) {
 		for _, f := range gfResp.Data {
 			b, err := hex.DecodeString(f.Name)
 			if err != nil {
-				fmt.Printf("Shade file %q with invalid hex in filename: %s\n", f.Name, err)
+				log.Printf("Shade file %q with invalid hex in filename: %s\n", f.Name, err)
 			}
 			s.files[string(b)] = f.ID
 		}

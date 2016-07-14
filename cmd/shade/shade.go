@@ -90,7 +90,7 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	go func() {
-		for _ = range sig {
+		for range sig {
 			if err := fuse.Unmount(mountPoint); err != nil {
 				log.Printf("fuse.Unmount failed: %v", err)
 			}
@@ -105,7 +105,7 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 // unmounted.
 func serviceFuse(conn *fuse.Conn, clients []drive.Client) error {
 	refresh := time.NewTicker(5 * time.Minute)
-	r, err := cache.New(clients, refresh)
+	r, err := cache.NewReader(clients, refresh)
 	if err != nil {
 		return err
 	}
@@ -115,9 +115,8 @@ func serviceFuse(conn *fuse.Conn, clients []drive.Client) error {
 		return fmt.Errorf("fuse server initialization failed: %s", err)
 	}
 
-	// block until unmounted
-	<-conn.Ready
 	// check if the mount process has an error to report
+	<-conn.Ready
 	if err := conn.MountError; err != nil {
 		return err
 	}
