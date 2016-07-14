@@ -42,9 +42,9 @@ func (s *MemoryDrive) ListFiles() ([][]byte, error) {
 // f should be marshalled JSON, and may be encrypted.
 func (s *MemoryDrive) PutFile(sha256sum, f []byte) error {
 	s.Lock()
+	defer s.Unlock()
 	s.files = append(s.files, sha256sum)
 	s.chunks[string(sha256sum)] = f
-	s.Unlock()
 	return nil
 }
 

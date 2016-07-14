@@ -1,7 +1,7 @@
 package shade
 
 import (
-	"fmt"
+	"log"
 	"os"
 	"path"
 	"runtime"
@@ -10,14 +10,14 @@ import (
 // ConfigDir identifies the correct path to store persistent configuration data
 // on various operating systems.
 func ConfigDir() string {
-	dir := "."
 	switch runtime.GOOS {
 	case "darwin":
-		dir = path.Join(os.Getenv("HOME"), "Library", "Application Support", "shade")
+		return path.Join(os.Getenv("HOME"), "Library", "Application Support", "shade")
 	case "linux", "freebsd":
-		dir = path.Join(os.Getenv("HOME"), ".shade")
+		return path.Join(os.Getenv("HOME"), ".shade")
 	default:
-		fmt.Printf("TODO: ConfigDir on GOOS %q", runtime.GOOS)
+		// TODO(shanel): Should this be log instead of fmt?
+		log.Printf("TODO: ConfigDir on GOOS %q", runtime.GOOS)
+		return "."
 	}
-	return dir
 }

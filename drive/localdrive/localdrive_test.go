@@ -1,8 +1,8 @@
 package localdrive
 
 import (
-	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"path"
 	"testing"
@@ -57,6 +57,6 @@ func TestDirRequired(t *testing.T) {
 
 func tearDown(dir string) {
 	if err := os.RemoveAll(dir); err != nil {
-		fmt.Printf("Could not clean up: %s", err)
+		log.Printf("Could not clean up: %s", err)
 	}
 }

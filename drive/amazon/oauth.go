@@ -3,6 +3,7 @@ package amazon
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -86,9 +87,9 @@ func getFreshToken(conf *oauth2.Config) (*oauth2.Token, error) {
 	v.Set("redirect_uri", redirectURI)
 
 	// Ask the user to authorize shade, receive authorization code
-	fmt.Println("Please visit this URL:")
-	fmt.Printf("%s?%s\n", authURL, v.Encode())
-	fmt.Println("Authorize shade and paste the 'localhost' URL you are redirected to here:")
+	log.Println("Please visit this URL:")
+	log.Printf("%s?%s\n", authURL, v.Encode())
+	log.Println("Authorize shade and paste the 'localhost' URL you are redirected to here:")
 	reader := bufio.NewReader(os.Stdin)
 	text, err := reader.ReadString('\n')
 	if err != nil {
