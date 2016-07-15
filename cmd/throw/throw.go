@@ -22,8 +22,7 @@ import (
 var (
 	defaultConfig = path.Join(shade.ConfigDir(), "config.json")
 
-	// TODO(asjoyner): make chunksize a flag
-	chunksize  = flag.Int("chunksize", 16*1024*1024, "size of a chunk stored in Drive, in bytes")
+	chunksize  = flag.Int("chunksize", 16*1024*1024, "size of a chunk, in bytes")
 	configPath = flag.String("config", defaultConfig, "shade config file")
 )
 
@@ -92,7 +91,7 @@ func main() {
 		}
 
 		manifest.Chunks = append(manifest.Chunks, chunk)
-		chunk.Index += 1
+		chunk.Index++
 	}
 
 	jm, err := json.Marshal(manifest)
