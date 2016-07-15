@@ -19,7 +19,12 @@ import (
 	_ "github.com/asjoyner/shade/drive/memory"
 )
 
-var chunksize = flag.Int("chunksize", 16*1024*1024, "size of a chunk stored in Drive, in bytes")
+var (
+	defaultConfig = path.Join(shade.ConfigDir(), "config.json")
+
+	chunksize  = flag.Int("chunksize", 16*1024*1024, "size of a chunk, in bytes")
+	configPath = flag.String("config", defaultConfig, "shade config file")
+)
 
 func main() {
 	flag.Usage = func() {
@@ -34,7 +39,7 @@ func main() {
 	}
 
 	// read in the config
-	clients, err := config.Clients()
+	clients, err := config.Clients(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not initialize clients: %s\n", err)
 		os.Exit(1)

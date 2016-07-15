@@ -60,7 +60,13 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	return &Drive{config: c}, nil
 }
 
+// Drive implements the drive.Client interface by storing Files and Chunks
+// to the local filesystem.  It treats the ChunkParentID and FileParentID as
+// filepaths to the directory to store data in.  If FileParentId and
+// ChunkParentID are not provided, it uses chunkCacheDir and fileCacheDir
+// flags, which have sensible defaults for your operating system.
 type Drive struct {
+	config drive.Config
 	sync.RWMutex
 	config drive.Config
 }
@@ -124,6 +130,10 @@ func (s *Drive) PutChunk(sha256sum []byte, data []byte) error {
 	s.Lock()
 	defer s.Unlock()
 	filename := path.Join(s.config.ChunkParentID, hex.EncodeToString(sha256sum))
+	if fh, err := os.Open(filename); err == nil {
+		fh.Close()
+		return nil
+	}
 	if err := ioutil.WriteFile(filename, data, 0400); err != nil {
 		return err
 	}

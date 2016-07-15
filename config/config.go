@@ -4,15 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"path"
 
-	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 )
 
 // Read finds, reads, parses, and returns the config.
-func Read() ([]drive.Config, error) {
-	filename := configPath()
+func Read(filename string) ([]drive.Config, error) {
 	contents, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("ReadFile(%q): %s", filename, err)
@@ -44,14 +41,8 @@ func parseConfig(contents []byte) ([]drive.Config, error) {
 	return configs, nil
 }
 
-// configPath returns the path of the JSON config file.
-func configPath() string {
-	return path.Join(shade.ConfigDir(), "config.json")
-}
-
-// Clients initializes and returns the set of drive clients.
-func Clients() ([]drive.Client, error) {
-	configs, err := Read()
+func Clients(configFile string) ([]drive.Client, error) {
+	configs, err := Read(configFile)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse config: %s", err)
 	}
