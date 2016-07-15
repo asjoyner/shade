@@ -31,11 +31,7 @@ type Node struct {
 	Children map[string]bool
 }
 
-<<<<<<< HEAD
-// Synthetic notes whether the node has a shasum.
-=======
 // Synthetic returns true for synthetically created directories.
->>>>>>> 4dfc8b2b4b5cb6dcff138a98f8075c629ce444c7
 func (n *Node) Synthetic() bool {
 	if n.Sha256sum == nil {
 		return true
@@ -52,14 +48,10 @@ type Reader struct {
 	nodes   map[string]Node // full path to node
 }
 
-<<<<<<< HEAD
-// NewReader returns a new fully initialized Reader object.
-=======
 // NewReader queries the provided clients, discovers all of their
 // shade.File(s), and populates any Writable clients with the discovered
 // File(s).  It returns a Reader object which is ready to answer questions
 // about the nodes in the file tree.
->>>>>>> 4dfc8b2b4b5cb6dcff138a98f8075c629ce444c7
 func NewReader(clients []drive.Client, t *time.Ticker) (*Reader, error) {
 	c := &Reader{
 		clients: clients,
@@ -118,12 +110,8 @@ func (c *Reader) FileByNode(n Node) (*shade.File, error) {
 	return unmarshalChunk(fj, n.Sha256sum)
 }
 
-<<<<<<< HEAD
-// HasChild returns whether parent has a 'child' node child.
-=======
 // HasChild returns true if child exists immediately below parent in the file
 // tree.
->>>>>>> 4dfc8b2b4b5cb6dcff138a98f8075c629ce444c7
 func (c *Reader) HasChild(parent, child string) bool {
 	c.RLock()
 	defer c.RUnlock()
@@ -138,13 +126,10 @@ func (c *Reader) NumNodes() int {
 	return len(c.nodes)
 }
 
-<<<<<<< HEAD
 // GetChunk is not yet implemented.
 func (c *Reader) GetChunk(sha256sum []byte) {
 }
 
-=======
->>>>>>> 4dfc8b2b4b5cb6dcff138a98f8075c629ce444c7
 // refresh updates the cache
 func (c *Reader) refresh() error {
 	debug("Begining cache refresh cycle.")
