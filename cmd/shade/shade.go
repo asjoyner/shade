@@ -7,10 +7,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path"
 	"time"
 
 	"bazil.org/fuse"
 
+	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/cache"
 	"github.com/asjoyner/shade/config"
 	"github.com/asjoyner/shade/drive"
@@ -23,8 +25,11 @@ import (
 )
 
 var (
+	defaultConfig = path.Join(shade.ConfigDir(), "config.json")
+
 	readOnly   = flag.Bool("readonly", false, "Mount the filesystem read only.")
 	allowOther = flag.Bool("allow_other", false, "If other users are allowed to view the mounted filesystem.")
+	configFile = flag.String("config", defaultConfig, fmt.Sprintf("The shade config file. Defaults to %q", defaultConfig))
 )
 
 func main() {
@@ -37,7 +42,7 @@ func main() {
 	}
 
 	// read in the config
-	clients, err := config.Clients()
+	clients, err := config.Clients(*configFile)
 	if err != nil {
 		log.Fatalf("could not initialize clients: %s\n", err)
 	}
