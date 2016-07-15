@@ -66,7 +66,6 @@ func NewClient(c drive.Config) (drive.Client, error) {
 // ChunkParentID are not provided, it uses chunkCacheDir and fileCacheDir
 // flags, which have sensible defaults for your operating system.
 type Drive struct {
-	config drive.Config
 	sync.RWMutex
 	config drive.Config
 }
