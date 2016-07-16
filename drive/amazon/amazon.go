@@ -57,13 +57,13 @@ func NewClient(c drive.Config) (drive.Client, error) {
 
 // Drive is a representation of the Amazon Cloud storage system.
 type Drive struct {
-	sync.RWMutex // protects files
-	client       *http.Client
-	ep           *Endpoint
-	config       drive.Config
+	client *http.Client
+	ep     *Endpoint
+	config drive.Config
 	// files maps from the string([]byte) representation of the file's SHA2 to
 	// the corresponding fileID in Drive
 	files map[string]string
+	fm    sync.RWMutex // protects files
 }
 
 // ListFiles retrieves all of the File objects known to the client, and returns
@@ -91,7 +91,7 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 			return nil, err
 		}
 
-		s.Lock()
+		s.fm.Lock()
 		for _, f := range gfResp.Data {
 			b, err := hex.DecodeString(f.Name)
 			if err != nil {
@@ -99,15 +99,15 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 			}
 			s.files[string(b)] = f.ID
 		}
-		s.Unlock()
+		s.fm.Unlock()
 		if gfResp.NextToken == "" {
 			break
 		}
 		nextToken = gfResp.NextToken
 	}
 
-	s.RLock()
-	defer s.RUnlock()
+	s.fm.RLock()
+	defer s.fm.RUnlock()
 	resp := make([][]byte, 0, len(s.files))
 	for sha256sum := range s.files {
 		resp = append(resp, []byte(sha256sum))
@@ -141,9 +141,9 @@ func (s *Drive) PutFile(sha256sum, contents []byte) error {
 // The cache is especially helpful for shade.File objects, which are
 // efficiently looked up on each call of ListFiles.
 func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
-	s.RLock()
+	s.fm.RLock()
 	fileID, ok := s.files[string(sha256sum)]
-	s.RUnlock()
+	s.fm.RUnlock()
 
 	if !ok { // we have to lookup this fileID
 		filters := fmt.Sprintf("kind:FILE AND labels:shadeChunk AND name:%x", sha256sum)
@@ -172,9 +172,9 @@ func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
 
 // PutChunk writes a chunk and returns its SHA-256 sum
 func (s *Drive) PutChunk(sha256sum []byte, chunk []byte) error {
-	s.RLock()
+	s.fm.RLock()
 	_, ok := s.files[string(sha256sum)]
-	s.RUnlock()
+	s.fm.RUnlock()
 	if ok {
 		return nil // we know this chunk already exists
 	}

@@ -5,16 +5,18 @@ import (
 	"sync"
 )
 
-// inodeMap provides a mapping from fuse.Node to and from the Path that it
+// InodeMap provides a mapping from fuse.Node to and from the Path that it
 // corresponds to.
-type inodeMap struct {
-	sync.RWMutex
-	inodes    map[uint64]string
-	lastInode uint64
+type InodeMap struct {
+	sync.RWMutex // protects acess to all fields of the struct
+	inodes       map[uint64]string
+	lastInode    uint64
 }
 
-func NewInodeMap() inodeMap {
-	return inodeMap{
+// NewInodeMap returns an initialized InodeMap. Initially, it knows of only the
+// path to the root inode.
+func NewInodeMap() *InodeMap {
+	return &InodeMap{
 		inodes: map[uint64]string{
 			1: "/",
 		},
@@ -22,16 +24,9 @@ func NewInodeMap() inodeMap {
 	}
 }
 
-func (im *inodeMap) ToPath(inode uint64) (string, error) {
-	im.RLock()
-	defer im.RUnlock()
-	if p, ok := im.inodes[inode]; ok {
-		return p, nil
-	}
-	return "", errors.New("inode not allocated")
-}
-
-func (im *inodeMap) FromPath(p string) uint64 {
+// FromPath returns the inode allocated for a given path.  If no inode has been
+// allocated for that path yet, it allocates a new one and returns it.
+func (im *InodeMap) FromPath(p string) uint64 {
 	im.RLock()
 	for inode, path := range im.inodes {
 		if p == path {
@@ -48,7 +43,19 @@ func (im *inodeMap) FromPath(p string) uint64 {
 	return im.lastInode
 }
 
-func (im *inodeMap) Release(inode uint64) {
+// ToPath returns the path which was allocated to inode.  If inode has not yet
+// been allocated, ToPath returns an error.
+func (im *InodeMap) ToPath(inode uint64) (string, error) {
+	im.RLock()
+	defer im.RUnlock()
+	if p, ok := im.inodes[inode]; ok {
+		return p, nil
+	}
+	return "", errors.New("inode not allocated")
+}
+
+// Release deletes the mapping from an inode to a given path.
+func (im *InodeMap) Release(inode uint64) {
 	im.Lock()
 	defer im.Unlock()
 	delete(im.inodes, inode)

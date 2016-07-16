@@ -43,9 +43,9 @@ func (n *Node) Synthetic() bool {
 // an interface to query for the union of the set of known files by path, and
 // returns a node representing that file.
 type Reader struct {
-	sync.RWMutex
 	clients []drive.Client
 	nodes   map[string]Node // full path to node
+	nm      sync.RWMutex    // protects nodes
 }
 
 // NewReader queries the provided clients, discovers all of their
@@ -70,8 +70,8 @@ func NewReader(clients []drive.Client, t *time.Ticker) (*Reader, error) {
 
 // NodeByPath returns the current file object for a given path.
 func (c *Reader) NodeByPath(p string) (Node, error) {
-	c.RLock()
-	defer c.RUnlock()
+	c.nm.RLock()
+	defer c.nm.RUnlock()
 	if n, ok := c.nodes[p]; ok {
 		return n, nil
 	}
@@ -113,16 +113,16 @@ func (c *Reader) FileByNode(n Node) (*shade.File, error) {
 // HasChild returns true if child exists immediately below parent in the file
 // tree.
 func (c *Reader) HasChild(parent, child string) bool {
-	c.RLock()
-	defer c.RUnlock()
+	c.nm.RLock()
+	defer c.nm.RUnlock()
 	return c.nodes[parent].Children[child]
 }
 
 // NumNodes returns the number of nodes (files + synthetic directories) in the
 // system.
 func (c *Reader) NumNodes() int {
-	c.RLock()
-	defer c.RUnlock()
+	c.nm.RLock()
+	defer c.nm.RUnlock()
 	return len(c.nodes)
 }
 
@@ -177,15 +177,15 @@ func (c *Reader) refresh() error {
 				Sha256sum:    sha256sum,
 				Children:     nil,
 			}
-			c.Lock()
+			c.nm.Lock()
 			// TODO(asjoyner): handle file + directory collisions
 			if existing, ok := c.nodes[node.Filename]; ok && existing.ModifiedTime.After(node.ModifiedTime) {
-				c.Unlock()
+				c.nm.Unlock()
 				continue
 			}
 			c.nodes[node.Filename] = node
 			c.addParents(node.Filename)
-			c.Unlock()
+			c.nm.Unlock()
 			knownNodes[string(sha256sum)] = true
 		}
 	}

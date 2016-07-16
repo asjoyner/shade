@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	_ "net/http/pprof"
 	"os"
 	"os/user"
 	"path"
@@ -17,11 +16,9 @@ import (
 	"time"
 
 	"bazil.org/fuse"
-	_ "bazil.org/fuse/fs/fstestutil"
 	"bazil.org/fuse/fuseutil"
 
 	"github.com/asjoyner/shade"
-	"github.com/asjoyner/shade/drive"
 
 	"github.com/asjoyner/shade/cache"
 )
@@ -30,24 +27,25 @@ var kernelRefresh = flag.Duration("kernel-refresh", time.Minute, "How long the k
 
 const blockSize uint32 = 4096
 
-// serveConn holds the state about the fuse connection
-type serveConn struct {
-	sync.Mutex
+// Server holds the state about the fuse connection
+type Server struct {
 	//db         *drive_db.DriveDB
 	//service    *drive.Service
 	cache   *cache.Reader
 	inode   inodeMap
-	files   []*shade.File
-	clients []drive.Client
 	uid     uint32 // uid of the user who mounted the FS
 	gid     uint32 // gid of the user who mounted the FS
 	conn    *fuse.Conn
 	handles []handle              // index is the handleid, inode=0 if free
+	hm      sync.Mutex            // protects access to handles
 	writers map[int]io.PipeWriter // index matches fh
 }
 
-func New(r *cache.Reader, conn *fuse.Conn) *serveConn {
-	return &serveConn{
+// New returns a Server which will service fuse requests arriving on conn,
+// based on data retrieved from cache.Reader.  It is ready to serve requests
+// when Server.conn.Ready is closed.
+func New(r *cache.Reader, conn *fuse.Conn) *Server {
+	return &Server{
 		cache:   r,
 		inode:   NewInodeMap(),
 		writers: make(map[int]io.PipeWriter),
@@ -64,7 +62,7 @@ type handle struct {
 }
 
 // Serve receives and dispatches Requests from the kernel
-func (sc *serveConn) Serve() error {
+func (sc *Server) Serve() error {
 	var err error
 	sc.uid, sc.gid, err = uidAndGid()
 	if err != nil {
@@ -86,7 +84,7 @@ func (sc *serveConn) Serve() error {
 }
 
 // serve dispatches incoming kernel requests to the appropriate code path
-func (sc *serveConn) serve(req fuse.Request) {
+func (sc *Server) serve(req fuse.Request) {
 	switch req := req.(type) {
 	default:
 		// ENOSYS means "this server never implements this request."
@@ -182,7 +180,7 @@ func (sc *serveConn) serve(req fuse.Request) {
 	}
 }
 
-func (sc *serveConn) nodeByID(inode fuse.NodeID) (cache.Node, error) {
+func (sc *Server) nodeByID(inode fuse.NodeID) (cache.Node, error) {
 	filename, err := sc.inode.ToPath(uint64(inode))
 	if err != nil {
 		return cache.Node{}, fmt.Errorf("ToPath(%d): %v", inode, err)
@@ -195,7 +193,7 @@ func (sc *serveConn) nodeByID(inode fuse.NodeID) (cache.Node, error) {
 }
 
 // gettattr returns fuse.Attr for the inode described by req.Header.Node
-func (sc *serveConn) getattr(req *fuse.GetattrRequest) {
+func (sc *Server) getattr(req *fuse.GetattrRequest) {
 	n, err := sc.nodeByID(req.Header.Node)
 	if err != nil {
 		fuse.Debug(err.Error())
@@ -212,7 +210,7 @@ func (sc *serveConn) getattr(req *fuse.GetattrRequest) {
 }
 
 // Return a LookupResponse for the named child of an inode, or ENOENT
-func (sc *serveConn) lookup(req *fuse.LookupRequest) {
+func (sc *Server) lookup(req *fuse.LookupRequest) {
 	inode := uint64(req.Header.Node)
 	resp := &fuse.LookupResponse{}
 	// This req is by inode.  Lookup what filename was assigned to that inode.
@@ -237,8 +235,8 @@ func (sc *serveConn) lookup(req *fuse.LookupRequest) {
 	req.Respond(resp)
 }
 
-func (sc *serveConn) readDir(req *fuse.ReadRequest) {
-	resp := &fuse.ReadResponse{make([]byte, 0, req.Size)}
+func (sc *Server) readDir(req *fuse.ReadRequest) {
+	resp := &fuse.ReadResponse{Data: make([]byte, 0, req.Size)}
 	n, err := sc.nodeByID(req.Header.Node)
 	if err != nil {
 		fuse.Debug(fmt.Sprintf("nodeByID(%d): %v", req.Header.Node, err))
@@ -273,7 +271,7 @@ func (sc *serveConn) readDir(req *fuse.ReadRequest) {
 	req.Respond(resp)
 }
 
-func (sc *serveConn) read(req *fuse.ReadRequest) {
+func (sc *Server) read(req *fuse.ReadRequest) {
 	req.RespondError(fuse.ENOSYS)
 	/*
 		h, err := sc.handleByID(req.Handle)
@@ -298,7 +296,7 @@ func (sc *serveConn) read(req *fuse.ReadRequest) {
 	*/
 }
 
-func (sc *serveConn) attrFromNode(node cache.Node, i uint64) fuse.Attr {
+func (sc *Server) attrFromNode(node cache.Node, i uint64) fuse.Attr {
 	attr := fuse.Attr{
 		Inode: i,
 		Uid:   sc.uid,
@@ -326,7 +324,7 @@ func (sc *serveConn) attrFromNode(node cache.Node, i uint64) fuse.Attr {
 }
 
 // Allocate a file handle, held by the kernel until Release
-func (sc *serveConn) open(req *fuse.OpenRequest) {
+func (sc *Server) open(req *fuse.OpenRequest) {
 	n, err := sc.nodeByID(req.Header.Node)
 	if err != nil {
 		req.RespondError(fuse.ENOENT)
@@ -345,12 +343,12 @@ func (sc *serveConn) open(req *fuse.OpenRequest) {
 }
 
 // allocate a kernel file handle for the requested inode
-func (sc *serveConn) allocHandle(inode fuse.NodeID, f *shade.File) uint64 {
+func (sc *Server) allocHandle(inode fuse.NodeID, f *shade.File) uint64 {
 	var hID uint64
 	var found bool
 	h := handle{inode: inode, file: f}
-	sc.Lock()
-	defer sc.Unlock()
+	sc.hm.Lock()
+	defer sc.hm.Unlock()
 	for i, ch := range sc.handles {
 		if ch.inode == 0 {
 			hID = uint64(i)
@@ -367,9 +365,9 @@ func (sc *serveConn) allocHandle(inode fuse.NodeID, f *shade.File) uint64 {
 }
 
 // Lookup a handleID by its NodeID
-func (sc *serveConn) handleByID(id fuse.HandleID) (handle, error) {
-	sc.Lock()
-	defer sc.Unlock()
+func (sc *Server) handleByID(id fuse.HandleID) (handle, error) {
+	sc.hm.Lock()
+	defer sc.hm.Unlock()
 	if int(id) >= len(sc.handles) {
 		return handle{}, fmt.Errorf("handle %v has not been allocated", id)
 	}
@@ -378,9 +376,9 @@ func (sc *serveConn) handleByID(id fuse.HandleID) (handle, error) {
 
 // Acknowledge release (eg. close) of file handle by the kernel
 // TODO(asjoyner): flush any remaining dirty blocks?
-func (sc *serveConn) release(req *fuse.ReleaseRequest) {
-	sc.Lock()
-	defer sc.Unlock()
+func (sc *Server) release(req *fuse.ReleaseRequest) {
+	sc.hm.Lock()
+	defer sc.hm.Unlock()
 	h := sc.handles[req.Handle]
 	if h.writer != nil {
 		h.writer.Close()
@@ -390,7 +388,7 @@ func (sc *serveConn) release(req *fuse.ReleaseRequest) {
 }
 
 // Create file in drive, allocate kernel filehandle for writes
-func (sc *serveConn) create(req *fuse.CreateRequest) {
+func (sc *Server) create(req *fuse.CreateRequest) {
 	// TODO(asjoyner): shadeify
 	req.RespondError(fuse.ENOSYS)
 	/*
@@ -453,7 +451,7 @@ func (sc *serveConn) create(req *fuse.CreateRequest) {
 	*/
 }
 
-func (sc *serveConn) mkdir(req *fuse.MkdirRequest) {
+func (sc *Server) mkdir(req *fuse.MkdirRequest) {
 	// TODO(asjoyner): shadeify
 	req.RespondError(fuse.ENOSYS)
 	/*
@@ -496,7 +494,7 @@ func (sc *serveConn) mkdir(req *fuse.MkdirRequest) {
 // Removes the inode described by req.Header.Node (doubles as rmdir)
 // Nota bene: there is no check preventing the removal of a directory which
 // contains files.
-func (sc *serveConn) remove(req *fuse.RemoveRequest) {
+func (sc *Server) remove(req *fuse.RemoveRequest) {
 	// TODO(asjoyner): shadeify
 	req.RespondError(fuse.ENOSYS)
 	// TODO: if allow_other, require uid == invoking uid to allow writes
@@ -526,7 +524,7 @@ func (sc *serveConn) remove(req *fuse.RemoveRequest) {
 }
 
 // rename renames a file or directory, optionally reparenting it
-func (sc *serveConn) rename(req *fuse.RenameRequest) {
+func (sc *Server) rename(req *fuse.RenameRequest) {
 	// TODO(asjoyner): shadeify
 	req.RespondError(fuse.ENOSYS)
 	/*
@@ -610,7 +608,7 @@ func (sc *serveConn) rename(req *fuse.RenameRequest) {
 }
 
 // Pass sequential writes on to the correct handle for uploading
-func (sc *serveConn) write(req *fuse.WriteRequest) {
+func (sc *Server) write(req *fuse.WriteRequest) {
 	// TODO(asjoyner): shadeify
 	req.RespondError(fuse.ENOSYS)
 	// TODO: if allow_other, require uid == invoking uid to allow writes
@@ -631,10 +629,10 @@ func (sc *serveConn) write(req *fuse.WriteRequest) {
 			req.RespondError(fuse.EIO)
 			return
 		}
-		sc.Lock()
+		sc.hm.Lock()
 		h.lastByte += int64(n)
 		sc.handles[req.Handle] = h
-		sc.Unlock()
+		sc.hm.Unlock()
 		req.Respond(&fuse.WriteResponse{n})
 	*/
 }
