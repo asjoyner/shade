@@ -64,7 +64,9 @@ func NewReader(clients []drive.Client, t *time.Ticker) (*Reader, error) {
 	if err := c.refresh(); err != nil {
 		return nil, fmt.Errorf("initializing cache: %s", err)
 	}
-	go c.periodicRefresh(t)
+	if t != nil {
+		go c.periodicRefresh(t)
+	}
 	return c, nil
 }
 

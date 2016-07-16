@@ -69,6 +69,7 @@ func TestFuseRead(t *testing.T) {
 				filename = fmt.Sprintf("%s/%s", filename, chs[i:i+8])
 			}
 		}
+		filename = strings.TrimPrefix(filename, "/")
 		file := shade.File{
 			Filename: filename,
 			Filesize: int64(len(chunkStringSum)),
@@ -90,8 +91,29 @@ func TestFuseRead(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	visit := func(path string, f os.FileInfo, err error) error {
-		// TODO(asjoyner): validate paths visited
-		fmt.Printf("Visited: %s\n", path)
+		//fmt.Printf("Visited: %s\n", path)
+		/*
+			// TODO(asjoyner): implement read and uncomment this
+			if !f.IsDir() {
+				contents, err := ioutil.ReadFile(path)
+				if err != nil {
+					t.Error(err)
+					return nil
+				}
+				filename := strings.TrimPrefix(path, mountPoint)
+				filename = strings.Replace(filename, "/", "", -1)
+				fmt.Printf("filename: %s\n", filename)
+				chs, err := hex.DecodeString(filename)
+				if err != nil {
+					t.Errorf("could not hex decode filename in Fuse FS: %s: %s", filename, err)
+					return nil
+				}
+				if bytes.Equal(contents, testChunks[string(chs)]) {
+					t.Errorf("contents of %s did not match, want: %s, got %s", filename, testChunks[filename], contents)
+					return nil
+				}
+			}
+		*/
 		return nil
 	}
 

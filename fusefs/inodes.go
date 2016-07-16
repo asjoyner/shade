@@ -30,6 +30,7 @@ func (im *InodeMap) FromPath(p string) uint64 {
 	im.RLock()
 	for inode, path := range im.inodes {
 		if p == path {
+			im.RUnlock()
 			return inode
 		}
 	}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"bazil.org/fuse"
+	_ "bazil.org/fuse/fs/fstestutil" // for fuse.debug
 	"bazil.org/fuse/fuseutil"
 
 	"github.com/asjoyner/shade"
@@ -32,7 +33,7 @@ type Server struct {
 	//db         *drive_db.DriveDB
 	//service    *drive.Service
 	cache   *cache.Reader
-	inode   inodeMap
+	inode   *InodeMap
 	uid     uint32 // uid of the user who mounted the FS
 	gid     uint32 // gid of the user who mounted the FS
 	conn    *fuse.Conn
