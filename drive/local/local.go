@@ -1,4 +1,4 @@
-// Package local is a local storage backend for Shade.
+// Package local is a persistent local storage backend for Shade.
 //
 // It stores files and chunks locally to disk.  You may define full filepaths
 // to store the files and chunks in the config, or via flag.  If you define
@@ -139,8 +139,10 @@ func (s *Drive) PutChunk(sha256sum []byte, data []byte) error {
 	return nil
 }
 
+// GetConfig returns the config used to initialize this client.
 func (s *Drive) GetConfig() drive.Config {
 	return s.config
 }
 
+// Local returns whether the storage is local to this machine.
 func (s *Drive) Local() bool { return true }

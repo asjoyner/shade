@@ -200,7 +200,7 @@ func (s *Drive) GetConfig() drive.Config {
 	return s.config
 }
 
-// Local returns whether the drive being accessed is local.
+// Local returns whether the storage is local to this machine.
 func (s *Drive) Local() bool { return false }
 
 // uploadFile pushes the file with the associated metadata describing it
