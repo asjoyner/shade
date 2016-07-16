@@ -1,0 +1,8 @@
+[
+  {
+    "Provider": "local",
+    "FileParentID": "/tmp/shade/files",
+    "ChunkParentID": "/tmp/shade/chunks",
+    "Write": true
+  }
+]

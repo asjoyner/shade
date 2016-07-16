@@ -96,13 +96,13 @@ func TestParseConfig(t *testing.T) {
 			},
 		},
 		{
-			name:       "single localdrive provider",
-			configPath: "testdata/single-localdrive-provider.config.json",
+			name:       "single local provider",
+			configPath: "testdata/single-local-provider.config.json",
 			want: []drive.Config{
 				{
-					Provider:      "localdrive",
-					FileParentID:  "/tmp/localdrive/files",
-					ChunkParentID: "/tmp/localdrive/chunks",
+					Provider:      "local",
+					FileParentID:  "/tmp/shade/files",
+					ChunkParentID: "/tmp/shade/chunks",
 					Write:         true,
 				},
 			},
@@ -129,7 +129,7 @@ func TestParseConfig(t *testing.T) {
 			} else if err != nil && tc.err != "" && !strings.Contains(err.Error(), tc.err) {
 				t.Errorf("test %q wanted err: %q, got err: %q", tc.name, tc.err, err)
 			} else if !reflect.DeepEqual(tc.want, configs) {
-				t.Errorf("test %q wanted: %v, got: %v", tc.name, tc.want, configs)
+				t.Errorf("test %q\nwanted: %+v\ngot: %+v", tc.name, tc.want, configs)
 			}
 		}
 	}
