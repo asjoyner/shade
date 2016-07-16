@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,7 +22,7 @@ import (
 
 func TestFuseRead(t *testing.T) {
 	mountPoint, err := ioutil.TempDir("", "fusefsTest")
-	fmt.Println("testing at: ", mountPoint)
+	//fmt.Println("testing at: ", mountPoint)
 	if err != nil {
 		t.Fatalf("could not acquire TempDir: %s", err)
 	}
@@ -32,11 +34,12 @@ func TestFuseRead(t *testing.T) {
 	}
 	defer tearDownFuse(t, mountPoint)
 
-	chunkSize := 100 * 256
+	chunkSize := 100 * 256 // in bytes
+	nc := 4                // number of chunks
 
 	// Generate some random file contents
-	testChunks := make(map[string][]byte, 10)
-	for _ = range testChunks {
+	testChunks := make(map[string][]byte, nc)
+	for i := 0; i < nc; i++ {
 		n := make([]byte, chunkSize)
 		rand.Read(n)
 		s := sha256.Sum256(n)
@@ -59,15 +62,15 @@ func TestFuseRead(t *testing.T) {
 	for chunkStringSum := range testChunks {
 		chs := hex.EncodeToString([]byte(chunkStringSum))
 		var filename string
-		if chs[0] == 0 {
+		if strings.HasPrefix(chs, "0") {
 			filename = chs
 		} else {
-			for i := 0; i >= len(chs); i += 2 {
-				filename = fmt.Sprintf("%s/%s", filename, chs[i:2])
+			for i := 0; i <= len(chs)-8; i += 8 {
+				filename = fmt.Sprintf("%s/%s", filename, chs[i:i+8])
 			}
 		}
 		file := shade.File{
-			Filename: "",
+			Filename: filename,
 			Filesize: int64(len(chunkStringSum)),
 			Chunks: []shade.Chunk{{
 				Index:  0,
@@ -80,10 +83,21 @@ func TestFuseRead(t *testing.T) {
 			t.Fatalf("test data is broken, could not marshal File: %s", err)
 		}
 		fileSum := sha256.Sum256(fj)
-		client.PutFile(fileSum[:], fj)
+		if err := client.PutFile(fileSum[:], fj); err != nil {
+			t.Errorf("failed to PutFile \"%x\": %s", fileSum[:], err)
+		}
 	}
-	time.Sleep(1)
-	// TODO(asjoyner): test that the files are visible via fuse
+	time.Sleep(1 * time.Second)
+
+	visit := func(path string, f os.FileInfo, err error) error {
+		// TODO(asjoyner): validate paths visited
+		fmt.Printf("Visited: %s\n", path)
+		return nil
+	}
+
+	if err := filepath.Walk(mountPoint, visit); err != nil {
+		t.Fatalf("filepath.Walk() returned %v\n", err)
+	}
 }
 
 // setup returns the absolute path to a mountpoint for a fuse FS, and the
