@@ -1,4 +1,4 @@
-package localdrive
+package local
 
 import (
 	"io/ioutil"

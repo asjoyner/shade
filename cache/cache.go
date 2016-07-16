@@ -43,9 +43,9 @@ func (n *Node) Synthetic() bool {
 // an interface to query for the union of the set of known files by path, and
 // returns a node representing that file.
 type Reader struct {
+	sync.RWMutex
 	clients []drive.Client
 	nodes   map[string]Node // full path to node
-	sync.RWMutex
 }
 
 // NewReader queries the provided clients, discovers all of their
@@ -124,6 +124,10 @@ func (c *Reader) NumNodes() int {
 	c.RLock()
 	defer c.RUnlock()
 	return len(c.nodes)
+}
+
+// GetChunk is not yet implemented.
+func (c *Reader) GetChunk(sha256sum []byte) {
 }
 
 // refresh updates the cache

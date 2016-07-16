@@ -1,9 +1,9 @@
-// Package localdrive is a local storage backend for Shade.
+// Package local is a local storage backend for Shade.
 //
 // It stores files and chunks locally to disk.  You may define full filepaths
 // to store the files and chunks in the config, or via flag.  If you define
 // neither, the flags will choose sensible defaults for your operating system.
-package localdrive
+package local
 
 import (
 	"encoding/hex"
@@ -21,21 +21,22 @@ import (
 
 var (
 	chunkCacheDir = flag.String(
-		"localDrive.chunkCacheDir",
-		path.Join(shade.ConfigDir(), "localdrive"),
-		"Default path for LocalDrive chunk storage.",
+		"local.chunkCacheDir",
+		path.Join(shade.ConfigDir(), "local"),
+		"Default path for local Drive chunk storage.",
 	)
 	fileCacheDir = flag.String(
-		"localDrive.fileCacheDir",
-		path.Join(shade.ConfigDir(), "localdrive"),
-		"Default path for LocalDrive file storage.",
+		"local.fileCacheDir",
+		path.Join(shade.ConfigDir(), "local"),
+		"Default path for local Drive file storage.",
 	)
 )
 
 func init() {
-	drive.RegisterProvider("localdrive", NewClient)
+	drive.RegisterProvider("local", NewClient)
 }
 
+// NewClient returns a fully initlized local client.
 func NewClient(c drive.Config) (drive.Client, error) {
 	if c.ChunkParentID == "" {
 		c.ChunkParentID = *chunkCacheDir
@@ -56,23 +57,23 @@ func NewClient(c drive.Config) (drive.Client, error) {
 		}
 	}
 
-	return &LocalDrive{config: c}, nil
+	return &Drive{config: c}, nil
 }
 
-// LocalDrive implements the drive.Client interface by storing Files and Chunks
+// Drive implements the drive.Client interface by storing Files and Chunks
 // to the local filesystem.  It treats the ChunkParentID and FileParentID as
 // filepaths to the directory to store data in.  If FileParentId and
 // ChunkParentID are not provided, it uses chunkCacheDir and fileCacheDir
 // flags, which have sensible defaults for your operating system.
-type LocalDrive struct {
-	config drive.Config
+type Drive struct {
 	sync.RWMutex
+	config drive.Config
 }
 
 // ListFiles retrieves all of the File objects known to the client.  The return
 // values are the sha256sum of the file object.  The keys may be passed to
 // GetChunk() to retrieve the corresponding shade.File.
-func (s *LocalDrive) ListFiles() ([][]byte, error) {
+func (s *Drive) ListFiles() ([][]byte, error) {
 	var resp [][]byte
 	s.Lock()
 	defer s.Unlock()
@@ -95,7 +96,7 @@ func (s *LocalDrive) ListFiles() ([][]byte, error) {
 
 // PutFile writes the metadata describing a new file.
 // f should be marshalled JSON, and may be encrypted.
-func (s *LocalDrive) PutFile(sha256sum, data []byte) error {
+func (s *Drive) PutFile(sha256sum, data []byte) error {
 	s.Lock()
 	defer s.Unlock()
 	filename := path.Join(s.config.FileParentID, hex.EncodeToString(sha256sum))
@@ -110,7 +111,7 @@ func (s *LocalDrive) PutFile(sha256sum, data []byte) error {
 }
 
 // GetChunk retrieves a chunk with a given SHA-256 sum
-func (s *LocalDrive) GetChunk(sha256sum []byte) ([]byte, error) {
+func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
 	s.RLock()
 	defer s.RUnlock()
 	paths := []string{s.config.FileParentID, s.config.ChunkParentID}
@@ -124,7 +125,7 @@ func (s *LocalDrive) GetChunk(sha256sum []byte) ([]byte, error) {
 }
 
 // PutChunk writes a chunk to local disk
-func (s *LocalDrive) PutChunk(sha256sum []byte, data []byte) error {
+func (s *Drive) PutChunk(sha256sum []byte, data []byte) error {
 	s.Lock()
 	defer s.Unlock()
 	filename := path.Join(s.config.ChunkParentID, hex.EncodeToString(sha256sum))
@@ -138,8 +139,8 @@ func (s *LocalDrive) PutChunk(sha256sum []byte, data []byte) error {
 	return nil
 }
 
-func (s *LocalDrive) GetConfig() drive.Config {
+func (s *Drive) GetConfig() drive.Config {
 	return s.config
 }
 
-func (s *LocalDrive) Local() bool { return true }
+func (s *Drive) Local() bool { return true }

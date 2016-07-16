@@ -32,6 +32,7 @@ const blockSize uint32 = 4096
 
 // serveConn holds the state about the fuse connection
 type serveConn struct {
+	sync.Mutex
 	//db         *drive_db.DriveDB
 	//service    *drive.Service
 	cache   *cache.Reader
@@ -43,7 +44,6 @@ type serveConn struct {
 	conn    *fuse.Conn
 	handles []handle              // index is the handleid, inode=0 if free
 	writers map[int]io.PipeWriter // index matches fh
-	sync.Mutex
 }
 
 func New(r *cache.Reader, conn *fuse.Conn) *serveConn {
@@ -276,7 +276,7 @@ func (sc *serveConn) readDir(req *fuse.ReadRequest) {
 func (sc *serveConn) read(req *fuse.ReadRequest) {
 	req.RespondError(fuse.ENOSYS)
 	/*
-		h, err := sc.handleById(req.Handle)
+		h, err := sc.handleByID(req.Handle)
 		f := h.file
 		fuse.Debug(fmt.Sprintf("Read(name: %s, offset: %d, size: %d)\n", f.Filename, req.Offset, req.Size))
 		chunkSums, err := chunksForRead(f, req.Offset, int64(req.Size))
@@ -314,7 +314,7 @@ func (sc *serveConn) attrFromNode(node cache.Node, i uint64) fuse.Attr {
 	}
 	blocks := node.Filesize / uint64(blockSize)
 	if r := node.Filesize % uint64(blockSize); r > 0 {
-		blocks += 1
+		blocks++
 	}
 	attr.Atime = node.ModifiedTime
 	attr.Mtime = node.ModifiedTime
@@ -337,37 +337,37 @@ func (sc *serveConn) open(req *fuse.OpenRequest) {
 
 	// TODO(asjoyner): get the shade.File for the node, stuff it in the Handle
 	f, err := sc.cache.FileByNode(n)
-	hId := sc.allocHandle(req.Header.Node, f)
+	hID := sc.allocHandle(req.Header.Node, f)
 
-	resp := fuse.OpenResponse{Handle: fuse.HandleID(hId)}
+	resp := fuse.OpenResponse{Handle: fuse.HandleID(hID)}
 	fuse.Debug(fmt.Sprintf("Open Response: %+v", resp))
 	req.Respond(&resp)
 }
 
 // allocate a kernel file handle for the requested inode
 func (sc *serveConn) allocHandle(inode fuse.NodeID, f *shade.File) uint64 {
-	var hId uint64
+	var hID uint64
 	var found bool
 	h := handle{inode: inode, file: f}
 	sc.Lock()
 	defer sc.Unlock()
 	for i, ch := range sc.handles {
 		if ch.inode == 0 {
-			hId = uint64(i)
-			sc.handles[hId] = h
+			hID = uint64(i)
+			sc.handles[hID] = h
 			found = true
 			break
 		}
 	}
 	if !found {
-		hId = uint64(len(sc.handles))
+		hID = uint64(len(sc.handles))
 		sc.handles = append(sc.handles, h)
 	}
-	return hId
+	return hID
 }
 
 // Lookup a handleID by its NodeID
-func (sc *serveConn) handleById(id fuse.HandleID) (handle, error) {
+func (sc *serveConn) handleByID(id fuse.HandleID) (handle, error) {
 	sc.Lock()
 	defer sc.Unlock()
 	if int(id) >= len(sc.handles) {
@@ -615,7 +615,7 @@ func (sc *serveConn) write(req *fuse.WriteRequest) {
 	req.RespondError(fuse.ENOSYS)
 	// TODO: if allow_other, require uid == invoking uid to allow writes
 	/*
-		h, err := sc.handleById(req.Handle)
+		h, err := sc.handleByID(req.Handle)
 		if err != nil {
 			fuse.Debug(fmt.Sprintf("inodeByNodeID(%v): %v", req.Handle, err))
 			req.RespondError(fuse.ESTALE)

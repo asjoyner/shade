@@ -20,10 +20,10 @@ const (
 // It provides threadsafe methods to get the Content and Metadata URLs, to
 // lookup new ones, and to keep them persistently up to date.
 type Endpoint struct {
+	sync.RWMutex
 	client      *http.Client
 	contentURL  string
 	metadataURL string
-	sync.RWMutex
 }
 
 // NewEndpoint returns an initialized Endpoint, or an error.

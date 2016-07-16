@@ -36,6 +36,7 @@ type Client interface {
 	Local() bool
 }
 
+// Config contains the configuration for the cloud drive being accessed.
 type Config struct {
 	Provider      string
 	OAuth         OAuthConfig
@@ -44,6 +45,7 @@ type Config struct {
 	Write         bool
 }
 
+// OAuthConfig contains the OAuth configuration information.
 type OAuthConfig struct {
 	ClientID     string
 	ClientSecret string
