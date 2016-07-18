@@ -78,3 +78,18 @@ func (s *Drive) GetConfig() drive.Config {
 
 // Local returns whether the storage is local to this machine.
 func (s *Drive) Local() bool { return true }
+
+// Persistent returns whether the storage is persistent across task restarts.
+func (s *Drive) Persistent() bool { return false }
+
+// ListChunks returns all the chunks known to the memory client.  It is helpful
+// for tests.
+func (s *Drive) ListChunks() [][]byte {
+	s.cm.Lock()
+	defer s.cm.Unlock()
+	resp := make([][]byte, 0, len(s.chunks))
+	for stringSum := range s.chunks {
+		resp = append(resp, []byte(stringSum))
+	}
+	return resp
+}

@@ -34,6 +34,12 @@ type Client interface {
 	// running, or the continent on which it is located suffering a high altitude
 	// EMP burst.
 	Local() bool
+
+	// Persistent identifies the storage durability of the client to the caller.
+	// If it returns false, code can expect that the content of this storage will
+	// persist after the death of the binary, but perhaps not the machine on
+	// which it is running
+	Persistent() bool
 }
 
 // Config contains the configuration for the cloud drive being accessed.

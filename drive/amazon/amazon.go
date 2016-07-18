@@ -203,6 +203,9 @@ func (s *Drive) GetConfig() drive.Config {
 // Local returns whether the storage is local to this machine.
 func (s *Drive) Local() bool { return false }
 
+// Persistent returns whether the storage is persistent across task restarts.
+func (s *Drive) Persistent() bool { return true }
+
 // uploadFile pushes the file with the associated metadata describing it
 func (s *Drive) uploadFile(filename string, chunk []byte, metadata interface{}) error {
 	body, ctype, err := mimeEncode(filename, chunk, metadata)

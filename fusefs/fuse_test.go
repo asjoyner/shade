@@ -91,7 +91,7 @@ func TestFuseRead(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	visit := func(path string, f os.FileInfo, err error) error {
-		//fmt.Printf("Visited: %s\n", path)
+		fmt.Printf("Visited: %s\n", path)
 		/*
 			// TODO(asjoyner): implement read and uncomment this
 			if !f.IsDir() {

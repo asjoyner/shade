@@ -47,3 +47,6 @@ func (s *Drive) GetConfig() drive.Config {
 
 // Local returns whether access is local.
 func (s *Drive) Local() bool { return false }
+
+// Persistent returns whether the storage is persistent across task restarts.
+func (s *Drive) Persistent() bool { return true }
