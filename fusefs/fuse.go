@@ -274,25 +274,27 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 
 func (sc *Server) read(req *fuse.ReadRequest) {
 	req.RespondError(fuse.ENOSYS)
-	h, err := sc.handleByID(req.Handle)
-	f := h.file
-	fuse.Debug(fmt.Sprintf("Read(name: %s, offset: %d, size: %d)\n", f.Filename, req.Offset, req.Size))
-	chunkSums, err := chunksForRead(f, req.Offset, int64(req.Size))
-	// calculated num required chunks
-	// TODO: for each chunk
-	// TODO:   fetch chunk
-	// TODO:   optionally decrypt chunk
-	// TODO:   push chunk into local storage
-	// TODO:   (return the chunk)
-	// TODO:   fill resp.Data from chunk
-	if err != nil {
-		fuse.Debug(fmt.Sprintf("db.ReadFileData(..%v..): %v", req.Offset, err))
-		req.RespondError(fuse.EIO)
-		return
-	}
-	resp := fuse.ReadResponse{}
-	resp.Data, err = allTheBytes
-	req.Respond(resp)
+	/*
+		h, err := sc.handleByID(req.Handle)
+		f := h.file
+		fuse.Debug(fmt.Sprintf("Read(name: %s, offset: %d, size: %d)\n", f.Filename, req.Offset, req.Size))
+		chunkSums, err := chunksForRead(f, req.Offset, int64(req.Size))
+		// calculated num required chunks
+		// TODO: for each chunk
+		// TODO:   fetch chunk
+		// TODO:   optionally decrypt chunk
+		// TODO:   push chunk into local storage
+		// TODO:   (return the chunk)
+		// TODO:   fill resp.Data from chunk
+		if err != nil {
+			fuse.Debug(fmt.Sprintf("db.ReadFileData(..%v..): %v", req.Offset, err))
+			req.RespondError(fuse.EIO)
+			return
+		}
+		resp := fuse.ReadResponse{}
+		resp.Data, err = allTheBytes
+		req.Respond(resp)
+	*/
 }
 
 func (sc *Server) attrFromNode(node cache.Node, i uint64) fuse.Attr {
