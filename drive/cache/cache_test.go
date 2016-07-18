@@ -72,6 +72,27 @@ func TestMemoryAndFailClients(t *testing.T) {
 	drive.TestChunkRoundTrip(t, cc)
 }
 
+func TestOnlyPersistentSatisfies(t *testing.T) {
+	cc, err := NewClient([]drive.Config{
+		{Provider: "memory", Write: true},
+		{
+			Provider: "fail",
+			OAuth:    drive.OAuthConfig{ClientID: "persistent"},
+			Write:    true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewClient() for test config failed: %s", err)
+	}
+
+	if cc.PutFile([]byte("b13s"), []byte("Hope is not a strategy.")) == nil {
+		t.Fatal("failed write to only persistent drive did not fail PutFile")
+	}
+	if cc.PutChunk([]byte("b13s"), []byte("Hope is not a strategy.")) == nil {
+		t.Fatal("failed write to only persistent drive did not fail PutChunk")
+	}
+}
+
 func compareMemoryDrives(t *testing.T, client0, client1 *memory.Drive) {
 	files0, _ := client0.ListFiles() // memory client never returns err
 	files1, _ := client1.ListFiles() // memory client never returns err

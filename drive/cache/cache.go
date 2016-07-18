@@ -58,7 +58,7 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 		go func(client drive.Client) {
 			f, err := client.ListFiles()
 			if err != nil {
-				debug("Error reading from %q: %s", client.GetConfig().Provider, err)
+				s.log(fmt.Sprintf("Error reading from %q: %s", client.GetConfig().Provider, err))
 			}
 			c <- f
 		}(client)
@@ -85,9 +85,8 @@ func (s *Drive) PutFile(sha256sum, f []byte) error {
 	done := make(chan struct{}, len(s.clients))
 	for _, client := range s.clients {
 		go func(client drive.Client) {
-			err := client.PutFile(sha256sum, f)
-			if err != nil {
-				debug("%s.PutFile(%x) failed: %s", client.GetConfig().Provider, sha256sum, err)
+			if err := client.PutFile(sha256sum, f); err != nil {
+				s.log(fmt.Sprintf("%s.PutFile(%x) failed: %s", client.GetConfig().Provider, sha256sum, err))
 				done <- struct{}{}
 				return
 			}
@@ -135,9 +134,8 @@ func (s *Drive) PutChunk(sha256sum []byte, chunk []byte) error {
 	done := make(chan struct{}, len(s.clients))
 	for _, client := range s.clients {
 		go func(client drive.Client) {
-			err := client.PutChunk(sha256sum, chunk)
-			if err != nil {
-				debug("%s.PutChunk(%x) failed: %s", client.GetConfig().Provider, sha256sum, err)
+			if err := client.PutChunk(sha256sum, chunk); err != nil {
+				s.log(fmt.Sprintf("%s.PutChunk(%x) failed: %s", client.GetConfig().Provider, sha256sum, err))
 				done <- struct{}{}
 				return
 			}
@@ -191,8 +189,8 @@ func (s *Drive) Debug() {
 	s.debug = true
 }
 
-func (s *Drive) debug(args interface{}) {
+func (s *Drive) log(output string) {
 	if s.debug {
-		log.Printf("CACHE: %s\n", args)
+		log.Printf("drive.Cache: %s\n", output)
 	}
 }
