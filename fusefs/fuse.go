@@ -20,8 +20,7 @@ import (
 	"bazil.org/fuse/fuseutil"
 
 	"github.com/asjoyner/shade"
-
-	"github.com/asjoyner/shade/cache"
+	"github.com/asjoyner/shade/drive"
 )
 
 var kernelRefresh = flag.Duration("kernel-refresh", time.Minute, "How long the kernel should cache metadata entries.")
@@ -32,7 +31,7 @@ const blockSize uint32 = 4096
 type Server struct {
 	//db         *drive_db.DriveDB
 	//service    *drive.Service
-	cache   *cache.Reader
+	tree    *Tree
 	inode   *InodeMap
 	uid     uint32 // uid of the user who mounted the FS
 	gid     uint32 // gid of the user who mounted the FS
@@ -43,15 +42,26 @@ type Server struct {
 }
 
 // New returns a Server which will service fuse requests arriving on conn,
-// based on data retrieved from cache.Reader.  It is ready to serve requests
-// when Server.conn.Ready is closed.
-func New(r *cache.Reader, conn *fuse.Conn) *Server {
+// based on data retrieved from drive.Client.  It is ready to serve requests
+// when Server.conn.Ready is closed.  The cached view of files is updated every
+// refresh.
+func New(client drive.Client, conn *fuse.Conn, refresh *time.Ticker) (*Server, error) {
+	tree, err := NewTree(client, refresh)
+	if err != nil {
+		return nil, err
+	}
+	uid, gid, err := uidAndGid()
+	if err != nil {
+		return nil, err
+	}
 	return &Server{
-		cache:   r,
+		tree:    tree,
 		inode:   NewInodeMap(),
 		writers: make(map[int]io.PipeWriter),
 		conn:    conn,
-	}
+		uid:     uid,
+		gid:     gid,
+	}, nil
 }
 
 type handle struct {
@@ -64,11 +74,6 @@ type handle struct {
 
 // Serve receives and dispatches Requests from the kernel
 func (sc *Server) Serve() error {
-	var err error
-	sc.uid, sc.gid, err = uidAndGid()
-	if err != nil {
-		return err
-	}
 	for {
 		req, err := sc.conn.ReadRequest()
 		if err != nil {
@@ -100,7 +105,7 @@ func (sc *Server) serve(req fuse.Request) {
 
 	case *fuse.StatfsRequest:
 		resp := &fuse.StatfsResponse{
-			Files: uint64(sc.cache.NumNodes()),
+			Files: uint64(sc.tree.NumNodes()),
 			Bsize: blockSize,
 		}
 		fuse.Debug(resp)
@@ -128,7 +133,7 @@ func (sc *Server) serve(req fuse.Request) {
 		if err != nil {
 			fuse.Debug(fmt.Sprintf("inode %d: %s", inode, err))
 		}
-		n, err := sc.cache.NodeByPath(p)
+		n, err := sc.tree.NodeByPath(p)
 		if err != nil {
 			fuse.Debug(fmt.Sprintf("FileByInode(%v): %v", inode, err))
 			req.RespondError(fuse.EIO)
@@ -181,14 +186,14 @@ func (sc *Server) serve(req fuse.Request) {
 	}
 }
 
-func (sc *Server) nodeByID(inode fuse.NodeID) (cache.Node, error) {
+func (sc *Server) nodeByID(inode fuse.NodeID) (Node, error) {
 	filename, err := sc.inode.ToPath(uint64(inode))
 	if err != nil {
-		return cache.Node{}, fmt.Errorf("ToPath(%d): %v", inode, err)
+		return Node{}, fmt.Errorf("ToPath(%d): %v", inode, err)
 	}
-	n, err := sc.cache.NodeByPath(filename)
+	n, err := sc.tree.NodeByPath(filename)
 	if err != nil {
-		return cache.Node{}, fmt.Errorf("NodeByPath(%v): %v", filename, err)
+		return Node{}, fmt.Errorf("NodeByPath(%v): %v", filename, err)
 	}
 	return n, nil
 }
@@ -221,9 +226,9 @@ func (sc *Server) lookup(req *fuse.LookupRequest) {
 		req.RespondError(fuse.ENOENT)
 		return
 	}
-	// Get the cache.Node for the child of that inode, if it exists
+	// Get the Node for the child of that inode, if it exists
 	filename := strings.TrimPrefix(path.Join(parentDir, req.Name), "/")
-	node, err := sc.cache.NodeByPath(filename)
+	node, err := sc.tree.NodeByPath(filename)
 	if err != nil {
 		fuse.Debug(fmt.Sprintf("Lookup(%v in %v): ENOENT", filename, inode))
 		req.RespondError(fuse.ENOENT)
@@ -248,7 +253,7 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 	var dirs []fuse.Dirent
 	for name := range n.Children {
 		childPath := strings.TrimPrefix(path.Join(n.Filename, name), "/")
-		c, err := sc.cache.NodeByPath(childPath)
+		c, err := sc.tree.NodeByPath(childPath)
 		fuse.Debug(fmt.Sprintf("Found child: %+v", c))
 		if err != nil {
 			fuse.Debug(fmt.Sprintf("child: NodeByPath(%v): %v", childPath, err))
@@ -297,7 +302,7 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 	*/
 }
 
-func (sc *Server) attrFromNode(node cache.Node, i uint64) fuse.Attr {
+func (sc *Server) attrFromNode(node Node, i uint64) fuse.Attr {
 	attr := fuse.Attr{
 		Inode: i,
 		Uid:   sc.uid,
@@ -335,7 +340,7 @@ func (sc *Server) open(req *fuse.OpenRequest) {
 	// TODO: if allow_other, require uid == invoking uid to allow writes
 
 	// TODO(asjoyner): get the shade.File for the node, stuff it in the Handle
-	f, err := sc.cache.FileByNode(n)
+	f, err := sc.tree.FileByNode(n)
 	hID := sc.allocHandle(req.Header.Node, f)
 
 	resp := fuse.OpenResponse{Handle: fuse.HandleID(hID)}
@@ -636,6 +641,11 @@ func (sc *Server) write(req *fuse.WriteRequest) {
 		sc.hm.Unlock()
 		req.Respond(&fuse.WriteResponse{n})
 	*/
+}
+
+// TreeDebug enables debug logging for operations done by the Tree.
+func (sc *Server) TreeDebug() {
+	sc.tree.Debug()
 }
 
 func chunksForRead(f *shade.File, offset, size int64) ([]shade.Chunk, error) {

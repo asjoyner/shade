@@ -16,21 +16,17 @@ import (
 // configured clients.
 
 // NewClient returns a Drive client which centralizes reading and writing to
-// multiple providers.
-func NewClient(configs []drive.Config) (drive.Client, error) {
-	if len(configs) == 0 {
-		return nil, errors.New("no configs provided")
+// multiple Providers.
+func NewClient(children []drive.Client) (*Drive, error) {
+	if len(children) == 0 {
+		return nil, errors.New("no clients provided")
 	}
 	d := &Drive{}
-	for _, config := range configs {
-		if config.Write {
+	for _, client := range children {
+		if client.GetConfig().Write {
 			d.config.Write = true
 		}
-		c, err := drive.NewClient(config)
-		if err != nil {
-			return nil, err
-		}
-		d.clients = append(d.clients, c)
+		d.clients = append(d.clients, client)
 	}
 	return d, nil
 }

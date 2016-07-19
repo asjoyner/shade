@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/asjoyner/shade"
-	"github.com/asjoyner/shade/cache"
 	"github.com/asjoyner/shade/drive"
 	"github.com/asjoyner/shade/drive/memory"
 
@@ -143,16 +142,14 @@ func setupFuse(t *testing.T, mountPoint string) (drive.Client, error) {
 	}
 
 	refresh := time.NewTicker(1 * time.Second)
-	r, err := cache.NewReader([]drive.Client{mc}, refresh)
+	ffs, err := New(mc, conn, refresh)
 	if err != nil {
-		return nil, fmt.Errorf("could not initialize cache: %s", err)
+		t.Fatalf("fuse server initialization failed: %s", err)
 	}
-
-	ffs := New(r, conn)
 	go func() {
 		err = ffs.Serve()
 		if err != nil {
-			t.Errorf("fuse server initialization failed: %s", err)
+			t.Errorf("serving fuse connection failed: %s", err)
 		}
 	}()
 

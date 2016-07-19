@@ -13,12 +13,12 @@ import (
 	"bazil.org/fuse"
 
 	"github.com/asjoyner/shade"
-	"github.com/asjoyner/shade/cache"
 	"github.com/asjoyner/shade/config"
 	"github.com/asjoyner/shade/drive"
 	"github.com/asjoyner/shade/fusefs"
 
 	_ "github.com/asjoyner/shade/drive/amazon"
+	"github.com/asjoyner/shade/drive/cache"
 	_ "github.com/asjoyner/shade/drive/google"
 	_ "github.com/asjoyner/shade/drive/local"
 	_ "github.com/asjoyner/shade/drive/memory"
@@ -30,6 +30,8 @@ var (
 	readOnly   = flag.Bool("readonly", false, "Mount the filesystem read only.")
 	allowOther = flag.Bool("allow_other", false, "If other users are allowed to view the mounted filesystem.")
 	configFile = flag.String("config", defaultConfig, fmt.Sprintf("The shade config file. Defaults to %q", defaultConfig))
+	cacheDebug = flag.Bool("cacheDebug", false, "Print cache debugging traces")
+	treeDebug  = flag.Bool("treeDebug", false, "Print Node tree debugging traces")
 )
 
 func main() {
@@ -47,6 +49,15 @@ func main() {
 		log.Fatalf("could not initialize clients: %s\n", err)
 	}
 
+	// initialize cache with clients
+	cacheClient, err := cache.NewClient(clients)
+	if err != nil {
+		log.Fatalf("could not initialize cache client: %s\n", err)
+	}
+	if *cacheDebug {
+		cacheClient.Debug()
+	}
+
 	// Setup fuse FS
 	conn, err := mountFuse(flag.Arg(0))
 	if err != nil {
@@ -54,7 +65,7 @@ func main() {
 	}
 	fmt.Printf("Mounting Shade FuseFS at %s...\n", flag.Arg(0))
 
-	if err := serviceFuse(conn, clients); err != nil {
+	if err := serviceFuse(conn, cacheClient); err != nil {
 		log.Fatalf("failed to service mount: %s", err)
 	}
 
@@ -95,7 +106,7 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	go func() {
-		for range sig {
+		for _ = range sig {
 			if err := fuse.Unmount(mountPoint); err != nil {
 				log.Printf("fuse.Unmount failed: %v", err)
 			}
@@ -108,24 +119,30 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 // serviceFuse initializes fusefs, the shade implementation of a fuse file
 // server, and services requests from the fuse kernel filesystem until it is
 // unmounted.
-func serviceFuse(conn *fuse.Conn, clients []drive.Client) error {
+func serviceFuse(conn *fuse.Conn, cacheClient drive.Client) error {
 	refresh := time.NewTicker(5 * time.Minute)
-	r, err := cache.NewReader(clients, refresh)
-	if err != nil {
-		return err
-	}
-	ffs := fusefs.New(r, conn)
-	err = ffs.Serve()
+	ffs, err := fusefs.New(cacheClient, conn, refresh)
 	if err != nil {
 		return fmt.Errorf("fuse server initialization failed: %s", err)
 	}
+	if *treeDebug {
+		ffs.TreeDebug()
+	}
 
-	// check if the mount process has an error to report
-	<-conn.Ready
-	if err := conn.MountError; err != nil {
-		return err
+	go func() {
+		<-conn.Ready // block until the fuse FS is mounted and ready
+		if err := conn.MountError; err != nil {
+			fmt.Printf("mounting fuse fs failed: %s", err)
+		}
+		fmt.Println("Shade FuseFS mounted and ready to serve.")
+	}()
+
+	err = ffs.Serve()
+	if err != nil {
+		return fmt.Errorf("serving fuse connection failed: %s", err)
 	}
 	return nil
+
 }
 
 func sanityCheck(mountPoint string) error {

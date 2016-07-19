@@ -1,6 +1,11 @@
-package cache
+package fusefs
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/asjoyner/shade/drive"
+	_ "github.com/asjoyner/shade/drive/win"
+)
 
 func TestSynthetic(t *testing.T) {
 	tests := []struct {
@@ -17,10 +22,10 @@ func TestSynthetic(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		b := Node{
+		n := Node{
 			Sha256sum: test.sha,
 		}
-		if got := b.Synthetic(); got != test.want {
+		if got := n.Synthetic(); got != test.want {
 			t.Fatalf("Synthetic() == %v; want %v", got, test.want)
 		}
 	}
@@ -41,8 +46,8 @@ func TestNodeByPath(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		r := Reader{nodes: test.nodes}
-		_, err := r.NodeByPath("n")
+		tree := Tree{nodes: test.nodes}
+		_, err := tree.NodeByPath("n")
 		if err == nil && test.wantErr {
 			t.Fatalf("NodeByPath(\"n\") did not return expected error")
 		}
@@ -73,14 +78,18 @@ func TestAddParent(t *testing.T) {
 	}
 
 	for path, pairs := range ts {
-		r, err := NewReader(nil, nil)
+		client, err := drive.NewClient(drive.Config{Provider: "win"})
 		if err != nil {
-			t.Fatalf("Reader initilization failed: %s", err)
+			t.Fatalf("failed to initialize test client: %s", err)
 		}
-		r.addParents(path)
+		tree, err := NewTree(client, nil)
+		if err != nil {
+			t.Fatalf("failed to initialize Tree: %s", err)
+		}
+		tree.addParents(path)
 		for parent, child := range pairs {
 			var found bool
-			for c := range r.nodes[parent].Children {
+			for c := range tree.nodes[parent].Children {
 				if c == child {
 					found = true
 				}

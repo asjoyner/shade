@@ -5,26 +5,17 @@ import (
 
 	"github.com/asjoyner/shade/drive"
 
-	_ "github.com/asjoyner/shade/drive/fail"
+	"github.com/asjoyner/shade/drive/fail"
 	"github.com/asjoyner/shade/drive/memory"
-	_ "github.com/asjoyner/shade/drive/win"
 )
 
 // Test a single pass through to the memory client.
-func TestFileRoundTrip(t *testing.T) {
-	cc, err := NewClient([]drive.Config{{Provider: "memory", Write: true}})
+func TestRoundTrip(t *testing.T) {
+	cc, err := NewClient([]drive.Client{memClient(t)})
 	if err != nil {
 		t.Fatalf("NewClient() for test config failed: %s", err)
 	}
 	drive.TestFileRoundTrip(t, cc)
-}
-
-// Test a single pass through to the memory client.
-func TestChunkRoundTrip(t *testing.T) {
-	cc, err := NewClient([]drive.Config{{Provider: "memory", Write: true}})
-	if err != nil {
-		t.Fatalf("NewClient() for test config failed: %s", err)
-	}
 	drive.TestChunkRoundTrip(t, cc)
 }
 
@@ -39,9 +30,9 @@ func TestNoConfigs(t *testing.T) {
 // Test two clients work as expected, and that both end up with the same files
 // and chunks.
 func TestTwoMemoryClients(t *testing.T) {
-	cc, err := NewClient([]drive.Config{
-		{Provider: "memory", Write: true},
-		{Provider: "memory", Write: true},
+	cc, err := NewClient([]drive.Client{
+		memClient(t),
+		memClient(t),
 	})
 	if err != nil {
 		t.Fatalf("NewClient() for test config failed: %s", err)
@@ -50,20 +41,18 @@ func TestTwoMemoryClients(t *testing.T) {
 	drive.TestChunkRoundTrip(t, cc)
 
 	// assert the actual class types to be able to check the internals
-	client0 := cc.(*Drive).clients[0].(*memory.Drive)
-	client1 := cc.(*Drive).clients[1].(*memory.Drive)
+	client0 := cc.clients[0].(*memory.Drive)
+	client1 := cc.clients[1].(*memory.Drive)
 
 	compareMemoryDrives(t, client0, client1)
 }
 
 func TestMemoryAndFailClients(t *testing.T) {
-	cc, err := NewClient([]drive.Config{
-		{Provider: "memory", Write: true},
-		{
-			Provider: "fail",
-			Write:    true,
-		},
+	failClient, _ := fail.NewClient(drive.Config{
+		Provider: "fail",
+		Write:    true,
 	})
+	cc, err := NewClient([]drive.Client{memClient(t), failClient})
 	if err != nil {
 		t.Fatalf("NewClient() for test config failed: %s", err)
 	}
@@ -73,14 +62,12 @@ func TestMemoryAndFailClients(t *testing.T) {
 }
 
 func TestOnlyPersistentSatisfies(t *testing.T) {
-	cc, err := NewClient([]drive.Config{
-		{Provider: "memory", Write: true},
-		{
-			Provider: "fail",
-			OAuth:    drive.OAuthConfig{ClientID: "persistent"},
-			Write:    true,
-		},
+	failClient, _ := fail.NewClient(drive.Config{
+		Provider: "fail",
+		OAuth:    drive.OAuthConfig{ClientID: "persistent"},
+		Write:    true,
 	})
+	cc, err := NewClient([]drive.Client{memClient(t), failClient})
 	if err != nil {
 		t.Fatalf("NewClient() for test config failed: %s", err)
 	}
@@ -126,4 +113,12 @@ func compareByteSlices(t *testing.T, a, b [][]byte) {
 			t.Errorf("one client didn't get this file: %x", f)
 		}
 	}
+}
+
+func memClient(t *testing.T) drive.Client {
+	mc, err := memory.NewClient(drive.Config{Provider: "memory", Write: true})
+	if err != nil {
+		t.Fatalf("could not initialize memory client: %s", err)
+	}
+	return mc
 }
