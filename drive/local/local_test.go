@@ -44,6 +44,23 @@ func TestChunkRoundTrip(t *testing.T) {
 	drive.TestChunkRoundTrip(t, ld)
 }
 
+func TestParallelRoundTrip(t *testing.T) {
+	dir, err := ioutil.TempDir("", "localdiskTest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tearDown(dir)
+	ld, err := NewClient(drive.Config{
+		Provider:      "localdisk",
+		FileParentID:  path.Join(dir, "files"),
+		ChunkParentID: path.Join(dir, "chunks"),
+	})
+	if err != nil {
+		t.Fatalf("initializing client: %s", err)
+	}
+	drive.TestParallelRoundTrip(t, ld)
+}
+
 func TestDirRequired(t *testing.T) {
 	_, err := NewClient(drive.Config{
 		Provider:      "localdisk",

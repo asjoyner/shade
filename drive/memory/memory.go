@@ -48,6 +48,8 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 func (s *Drive) PutFile(sha256sum, f []byte) error {
 	s.fm.Lock()
 	defer s.fm.Unlock()
+	s.cm.Lock()
+	defer s.cm.Unlock()
 	s.files = append(s.files, sha256sum)
 	s.chunks[string(sha256sum)] = f
 	return nil
