@@ -31,7 +31,7 @@ type File struct {
 	AesKey []byte `json:",omitempty"`
 }
 
-// Chunk represents the a portion of content of the File being stored.
+// Chunk represents a portion of the content of the File being stored.
 type Chunk struct {
 	Index  int
 	Sha256 []byte
