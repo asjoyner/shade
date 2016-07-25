@@ -1,6 +1,7 @@
 package fusefs
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
@@ -19,22 +19,27 @@ import (
 	"bazil.org/fuse"
 )
 
+func init() {
+	// This may be helpful if the tests fail.
+	//fstestutil.DebugByDefault()
+}
+
 func TestFuseRead(t *testing.T) {
 	mountPoint, err := ioutil.TempDir("", "fusefsTest")
-	//fmt.Println("testing at: ", mountPoint)
 	if err != nil {
 		t.Fatalf("could not acquire TempDir: %s", err)
 	}
 	defer tearDownDir(mountPoint)
 
-	client, err := setupFuse(t, mountPoint)
+	t.Logf("Mounting fuse filesystem at: %s", mountPoint)
+	client, ffs, err := setupFuse(t, mountPoint)
 	if err != nil {
 		t.Fatalf("could not mount fuse: %s", err)
 	}
 	defer tearDownFuse(t, mountPoint)
 
 	chunkSize := 100 * 256 // in bytes
-	nc := 4                // number of chunks
+	nc := 50               // number of chunks
 
 	// Generate some random file contents
 	testChunks := make(map[string][]byte, nc)
@@ -58,6 +63,7 @@ func TestFuseRead(t *testing.T) {
 	// the directory scheme is to break apart the shasum into dirs:
 	// deadbeef == de/ad/be/ff/deadbeef
 	// .. unless it starts with 0, so we exercise files at / too.
+	i := 0
 	for chunkStringSum := range testChunks {
 		chs := hex.EncodeToString([]byte(chunkStringSum))
 		var filename string
@@ -86,46 +92,77 @@ func TestFuseRead(t *testing.T) {
 		if err := client.PutFile(fileSum[:], fj); err != nil {
 			t.Errorf("failed to PutFile \"%x\": %s", fileSum[:], err)
 		}
+		i++
+		t.Logf("Added to drive.Client %d: %s\n", i, filename)
 	}
-	time.Sleep(1 * time.Second)
 
+	// double check that the client is sane
+	files, err := client.ListFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nf := len(files); nf != nc {
+		t.Fatalf("incomplete file set in client, want: %d, got %d", nc, nf)
+	}
+	t.Logf("There are %d files known to the drive.Client.", nc)
+
+	if err := ffs.Refresh(); err != nil {
+		t.Fatalf("failed to refresh fuse fileserver: %s", err)
+	}
+	t.Logf("Drive client refreshed successfully.")
+
+	seen := make(map[string]bool)
 	visit := func(path string, f os.FileInfo, err error) error {
-		//fmt.Printf("Visited: %s\n", path)
-		/*
-			// TODO(asjoyner): implement read and uncomment this
-			if !f.IsDir() {
-				contents, err := ioutil.ReadFile(path)
-				if err != nil {
-					t.Error(err)
-					return nil
-				}
-				filename := strings.TrimPrefix(path, mountPoint)
-				filename = strings.Replace(filename, "/", "", -1)
-				fmt.Printf("filename: %s\n", filename)
-				chs, err := hex.DecodeString(filename)
-				if err != nil {
-					t.Errorf("could not hex decode filename in Fuse FS: %s: %s", filename, err)
-					return nil
-				}
-				if bytes.Equal(contents, testChunks[string(chs)]) {
-					t.Errorf("contents of %s did not match, want: %s, got %s", filename, testChunks[filename], contents)
-					return nil
-				}
+		if err != nil {
+			t.Errorf("failed to read path: %s", err)
+			return err
+		}
+		if !f.IsDir() {
+			t.Logf("Seen in FS %d: %s\n", len(seen)+1, path)
+			contents, err := ioutil.ReadFile(path)
+			if err != nil {
+				t.Error(err)
+				return nil
 			}
-		*/
+			filename := strings.TrimPrefix(path, mountPoint)
+			filename = strings.Replace(filename, "/", "", -1)
+			chs, err := hex.DecodeString(filename)
+			if err != nil {
+				t.Errorf("could not hex decode filename in Fuse FS: %s: %s", filename, err)
+				return nil
+			}
+			if bytes.Equal(contents, testChunks[string(chs)]) {
+				t.Errorf("contents of %s did not match, want: %s, got %s", filename, testChunks[filename], contents)
+				return nil
+			}
+			if seen[string(chs)] {
+				t.Errorf("saw chunk twice: %x", chs)
+			}
+			seen[string(chs)] = true
+		}
 		return nil
 	}
 
+	t.Logf("Attempting to walk the filesystem.")
 	if err := filepath.Walk(mountPoint, visit); err != nil {
-		t.Fatalf("filepath.Walk() returned %v\n", err)
+		t.Fatalf("filepath.Walk() returned %v", err)
+	}
+
+	if ns := len(seen); ns != nc {
+		t.Errorf("incomplete file set in fuse, want: %d, got %d", nc, ns)
+		for chunk := range testChunks {
+			if !seen[chunk] {
+				t.Errorf("missing file: %x", chunk)
+			}
+		}
 	}
 }
 
 // setup returns the absolute path to a mountpoint for a fuse FS, and the
-// memory-backed drive.Client which it is following.  The Client is configured
-// to refresh once per second, tests should sleep after PutFile / PutChunk.
-// TODO(asjoyner): refresh the cache on demand
-func setupFuse(t *testing.T, mountPoint string) (drive.Client, error) {
+// memory-backed drive.Client which it is following.  The FS is configured not
+// to refresh the drive.Client, you must call Refresh() if you update the
+// client outside fuse.
+func setupFuse(t *testing.T, mountPoint string) (drive.Client, *Server, error) {
 	options := []fuse.MountOption{
 		fuse.FSName("Shade"),
 		fuse.NoAppleDouble(),
@@ -133,16 +170,15 @@ func setupFuse(t *testing.T, mountPoint string) (drive.Client, error) {
 	conn, err := fuse.Mount(mountPoint, options...)
 	if err != nil {
 		// often means the mountpoint is busy... but it's a TempDir...
-		return nil, fmt.Errorf("could not setup Fuse mount: %s", err)
+		return nil, nil, fmt.Errorf("could not setup Fuse mount: %s", err)
 	}
 
 	mc, err := memory.NewClient(drive.Config{Provider: "memory"})
 	if err != nil {
-		return nil, fmt.Errorf("NewClient() for test config failed: %s", err)
+		return nil, nil, fmt.Errorf("NewClient() for test config failed: %s", err)
 	}
 
-	refresh := time.NewTicker(1 * time.Second)
-	ffs, err := New(mc, conn, refresh)
+	ffs, err := New(mc, conn, nil)
 	if err != nil {
 		t.Fatalf("fuse server initialization failed: %s", err)
 	}
@@ -155,9 +191,9 @@ func setupFuse(t *testing.T, mountPoint string) (drive.Client, error) {
 
 	<-conn.Ready // returns when the FS is usable
 	if conn.MountError != nil {
-		return nil, fmt.Errorf("fuse exited with an error: %s", err)
+		return nil, nil, fmt.Errorf("fuse exited with an error: %s", err)
 	}
-	return mc, nil
+	return mc, ffs, nil
 }
 
 func tearDownFuse(t *testing.T, dir string) {
@@ -169,5 +205,82 @@ func tearDownFuse(t *testing.T, dir string) {
 func tearDownDir(dir string) {
 	if err := os.RemoveAll(dir); err != nil {
 		fmt.Printf("Could not clean up: %s", err)
+	}
+}
+
+func TestChunksForRead(t *testing.T) {
+	f := &shade.File{
+		Filename: "test",
+		Filesize: 32,
+		Chunks: []shade.Chunk{
+			// chunks have artificial SHA sums to make identification easier
+			{Index: 0, Sha256: []byte("0000")},
+			{Index: 1, Sha256: []byte("1111")},
+			{Index: 2, Sha256: []byte("2222")},
+			{Index: 3, Sha256: []byte("3333")},
+		},
+		Chunksize: 8,
+	}
+	testSet := []struct {
+		offset int64
+		size   int64
+		want   [][]byte
+	}{
+		{
+			offset: 0,
+			size:   1,
+			want:   [][]byte{[]byte("0000")},
+		},
+		{
+			offset: 0,
+			size:   32,
+			want: [][]byte{
+				[]byte("0000"),
+				[]byte("1111"),
+				[]byte("2222"),
+				[]byte("3333"),
+			},
+		},
+		{
+			offset: 31,
+			size:   1,
+			want:   [][]byte{[]byte("3333")},
+		},
+		{
+			offset: 12,
+			size:   8,
+			want: [][]byte{
+				[]byte("1111"),
+				[]byte("2222"),
+			},
+		},
+	}
+	for _, ts := range testSet {
+		cs, err := chunksForRead(f, ts.offset, ts.size)
+		if err != nil {
+			t.Errorf("unexpected error: chunksForRead(%+v, %d, %d): %s", f, ts.offset, ts.size, err)
+			continue
+		}
+		if len(cs) != len(ts.want) {
+			t.Errorf("chunksForRead(%+v, %d, %d), want: %s, got: %s", f, ts.offset, ts.size, ts.want, cs)
+			continue
+		}
+		for i := 0; i < len(cs); i++ {
+			if !bytes.Equal(cs[i], ts.want[i]) {
+				t.Errorf("chunksForRead(%+v, %d, %d), want: %s, got: %s", f, ts.offset, ts.size, ts.want, cs)
+			}
+		}
+	}
+	_, err := chunksForRead(f, 33, 1)
+	if err == nil {
+		t.Errorf("expected error from chunksForRead(%+v, %d, %d), got nil", f, 33, 1)
+	}
+	_, err = chunksForRead(f, -1024, 1)
+	if err == nil {
+		t.Errorf("expected error from chunksForRead(%+v, %d, %d), got nil", f, -1024, 1)
+	}
+	_, err = chunksForRead(f, 0, -1)
+	if err == nil {
+		t.Errorf("expected error from chunksForRead(%+v, %d, %d), got nil", f, -1024, 1)
 	}
 }

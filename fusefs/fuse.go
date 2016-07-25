@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/user"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +32,7 @@ const blockSize uint32 = 4096
 type Server struct {
 	//db         *drive_db.DriveDB
 	//service    *drive.Service
+	client  drive.Client
 	tree    *Tree
 	inode   *InodeMap
 	uid     uint32 // uid of the user who mounted the FS
@@ -55,6 +57,7 @@ func New(client drive.Client, conn *fuse.Conn, refresh *time.Ticker) (*Server, e
 		return nil, err
 	}
 	return &Server{
+		client:  client,
 		tree:    tree,
 		inode:   NewInodeMap(),
 		writers: make(map[int]io.PipeWriter),
@@ -84,9 +87,17 @@ func (sc *Server) Serve() error {
 		}
 
 		fuse.Debug(fmt.Sprintf("%+v", req))
-		go sc.serve(req)
+		// multiple goroutines seems to make Server take about 5x wall clock time
+		// to handle requests under load, as shown by TestFuseRead.
+		// go sc.serve(req)
+		sc.serve(req)
 	}
 	return nil
+}
+
+// Refresh updates the view of the underlying drive.Client.
+func (sc *Server) Refresh() error {
+	return sc.tree.Refresh()
 }
 
 // serve dispatches incoming kernel requests to the appropriate code path
@@ -219,7 +230,7 @@ func (sc *Server) getattr(req *fuse.GetattrRequest) {
 func (sc *Server) lookup(req *fuse.LookupRequest) {
 	inode := uint64(req.Header.Node)
 	resp := &fuse.LookupResponse{}
-	// This req is by inode.  Lookup what filename was assigned to that inode.
+	// This request is by inode.  Lookup what filename was assigned to that inode.
 	parentDir, err := sc.inode.ToPath(inode)
 	if err != nil {
 		fuse.Debug(fmt.Sprintf("lookup unassigned inode %d: %s", inode, err))
@@ -237,7 +248,7 @@ func (sc *Server) lookup(req *fuse.LookupRequest) {
 	resp.Node = fuse.NodeID(sc.inode.FromPath(filename))
 	resp.EntryValid = *kernelRefresh
 	resp.Attr = sc.attrFromNode(node, inode)
-	fuse.Debug(fmt.Sprintf("Lookup(%v in %v): %v", req.Name, inode, resp.Node))
+	fuse.Debug(fmt.Sprintf("Lookup(%v in %v): %+v", req.Name, inode, resp.Node))
 	req.Respond(resp)
 }
 
@@ -250,11 +261,19 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 		return
 	}
 
-	var dirs []fuse.Dirent
+	// HandleRead requires the data section to be sorted the same way each time,
+	// but they are stored in a map.  So read them out and sort them first.
+	var children []string
 	for name := range n.Children {
+		children = append(children, name)
+	}
+	sort.Strings(children)
+
+	var data []byte
+	for _, name := range children {
 		childPath := strings.TrimPrefix(path.Join(n.Filename, name), "/")
 		c, err := sc.tree.NodeByPath(childPath)
-		fuse.Debug(fmt.Sprintf("Found child: %+v", c))
+		//fuse.Debug(fmt.Sprintf("Found child: %+v", c))
 		if err != nil {
 			fuse.Debug(fmt.Sprintf("child: NodeByPath(%v): %v", childPath, err))
 			req.RespondError(fuse.EIO)
@@ -265,41 +284,60 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 			childType = fuse.DT_Dir
 		}
 		ci := sc.inode.FromPath(childPath)
-		dirs = append(dirs, fuse.Dirent{Inode: ci, Name: name, Type: childType})
+		data = fuse.AppendDirent(data, fuse.Dirent{Inode: ci, Name: name, Type: childType})
 	}
-	fuse.Debug(fmt.Sprintf("ReadDir Response: %+v", dirs))
+	fuse.Debug(fmt.Sprintf("ReadDir Response: %v", data))
 
-	var data []byte
-	for _, dir := range dirs {
-		data = fuse.AppendDirent(data, dir)
-	}
 	fuseutil.HandleRead(req, resp, data)
 	req.Respond(resp)
 }
 
 func (sc *Server) read(req *fuse.ReadRequest) {
-	req.RespondError(fuse.ENOSYS)
-	/*
-		h, err := sc.handleByID(req.Handle)
-		f := h.file
-		fuse.Debug(fmt.Sprintf("Read(name: %s, offset: %d, size: %d)\n", f.Filename, req.Offset, req.Size))
-		chunkSums, err := chunksForRead(f, req.Offset, int64(req.Size))
-		// calculated num required chunks
-		// TODO: for each chunk
-		// TODO:   fetch chunk
-		// TODO:   optionally decrypt chunk
-		// TODO:   push chunk into local storage
-		// TODO:   (return the chunk)
-		// TODO:   fill resp.Data from chunk
+	h, err := sc.handleByID(req.Handle)
+	f := h.file
+	fuse.Debug(fmt.Sprintf("Read(name: %s, offset: %d, size: %d)", f.Filename, req.Offset, req.Size))
+	chunkSize := int64(f.Chunksize)
+	chunkSums, err := chunksForRead(f, req.Offset, chunkSize)
+	if err != nil {
+		fuse.Debug(fmt.Sprintf("chunksForRead(): %s", err))
+		req.RespondError(fuse.EIO)
+		return
+	}
+
+	var allTheBytes []byte
+	for _, cs := range chunkSums {
+		chunk, err := sc.client.GetChunk(cs)
 		if err != nil {
-			fuse.Debug(fmt.Sprintf("db.ReadFileData(..%v..): %v", req.Offset, err))
+			fuse.Debug(fmt.Sprintf("GetChunk(%x): %v", cs, err))
 			req.RespondError(fuse.EIO)
 			return
 		}
-		resp := fuse.ReadResponse{}
-		resp.Data, err = allTheBytes
-		req.Respond(resp)
-	*/
+		// TODO: optionally decrypt chunk
+		allTheBytes = append(allTheBytes, chunk...)
+	}
+
+	dsize := int64(len(allTheBytes))
+	chunkNum := req.Offset / chunkSize
+	low := req.Offset - chunkNum*(chunkSize)
+	if low < 0 {
+		low = 0
+	}
+	if low > dsize {
+		fuse.Debug(fmt.Sprintf("too-low chunk calculation error (low:%d, dsize:%d): filename: %s, offset:%d, size:%d, filesize:%d", low, dsize, f.Filename, req.Offset, req.Size, f.Filesize))
+		req.RespondError(fuse.EIO)
+		return
+	}
+	high := low + int64(req.Size)
+	if high > dsize {
+		high = dsize
+		fuse.Debug(fmt.Sprintf("too-low chunk calculation error (low:%d, dsize:%d): filename: %s, offset:%d, size:%d, filesize:%d", low, dsize, f.Filename, req.Offset, req.Size, f.Filesize))
+		req.RespondError(fuse.EIO)
+		return
+	}
+	d := allTheBytes[low:high]
+	resp := &fuse.ReadResponse{Data: d}
+	fuse.Debug(fmt.Sprintf("Read resp: %s %d bytes", resp, len(d)))
+	req.Respond(resp)
 }
 
 func (sc *Server) attrFromNode(node Node, i uint64) fuse.Attr {
@@ -339,7 +377,7 @@ func (sc *Server) open(req *fuse.OpenRequest) {
 
 	// TODO: if allow_other, require uid == invoking uid to allow writes
 
-	// TODO(asjoyner): get the shade.File for the node, stuff it in the Handle
+	// get the shade.File for the node, stuff it in the Handle
 	f, err := sc.tree.FileByNode(n)
 	hID := sc.allocHandle(req.Header.Node, f)
 
@@ -648,18 +686,23 @@ func (sc *Server) TreeDebug() {
 	sc.tree.Debug()
 }
 
-func chunksForRead(f *shade.File, offset, size int64) ([]shade.Chunk, error) {
-	var chunks []shade.Chunk
+func chunksForRead(f *shade.File, offset, size int64) ([][]byte, error) {
+	if offset < 0 || size < 0 {
+		return nil, fmt.Errorf("negative offset and size are unsupported")
+	}
 	chunkSize := int64(f.Chunksize)
-	chunkNum := offset / chunkSize
-	// Keep adding chunks until we've satisfied the request
-	// r is the remaining number of bytes required
-	for r := size - chunkSize; r <= 0; r -= chunkSize {
-		if chunkNum > int64(len(f.Chunks)) {
-			return nil, fmt.Errorf("no chunk for read at: %d", chunkNum)
-		}
-		chunks = append(chunks, f.Chunks[chunkNum])
-		chunkNum++
+	firstChunk := offset / chunkSize
+	lastChunk := ((offset + size - 1) / chunkSize) + 1
+	if firstChunk > int64(len(f.Chunks)) {
+		return nil, fmt.Errorf("no chunk for read at: %d", firstChunk)
+	}
+	if lastChunk > int64(len(f.Chunks)) {
+		return nil, fmt.Errorf("no chunk for read at: %d", lastChunk)
+	}
+	// extract the Sha256 sums from the chunk objects
+	var chunks [][]byte
+	for _, c := range f.Chunks[firstChunk:lastChunk] {
+		chunks = append(chunks, c.Sha256)
 	}
 	return chunks, nil
 }

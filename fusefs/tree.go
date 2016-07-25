@@ -22,6 +22,9 @@ type Node struct {
 	Filesize     uint64 // in bytes
 	ModifiedTime time.Time
 	Sha256sum    []byte // the sha of the full shade.File
+	// Children is a map indicating the presence of a node immediately
+	// below the current node in the tree.  The key is only the name of that
+	// node, a relative path, not fully qualified.
 	// TODO(asjoyner): use a struct{} here for efficiency?
 	// unsafe.Sizeof indicates it would save 1 byte per FS entry
 	Children map[string]bool
