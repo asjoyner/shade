@@ -8,28 +8,13 @@ package local
 import (
 	"encoding/hex"
 	"errors"
-	"flag"
 	"io/ioutil"
 	"log"
 	"os"
 	"path"
 	"sync"
 
-	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
-)
-
-var (
-	chunkCacheDir = flag.String(
-		"local.chunkCacheDir",
-		path.Join(shade.ConfigDir(), "local"),
-		"Default path for local Drive chunk storage.",
-	)
-	fileCacheDir = flag.String(
-		"local.fileCacheDir",
-		path.Join(shade.ConfigDir(), "local"),
-		"Default path for local Drive file storage.",
-	)
 )
 
 func init() {
@@ -39,10 +24,10 @@ func init() {
 // NewClient returns a fully initlized local client.
 func NewClient(c drive.Config) (drive.Client, error) {
 	if c.ChunkParentID == "" {
-		c.ChunkParentID = *chunkCacheDir
+		return nil, errors.New("specify the path to store local chunks as ChunkParentID")
 	}
 	if c.FileParentID == "" {
-		c.FileParentID = *fileCacheDir
+		return nil, errors.New("specify the path to store local files as FileParentID")
 	}
 	for _, dir := range []string{
 		c.ChunkParentID,
@@ -62,9 +47,7 @@ func NewClient(c drive.Config) (drive.Client, error) {
 
 // Drive implements the drive.Client interface by storing Files and Chunks
 // to the local filesystem.  It treats the ChunkParentID and FileParentID as
-// filepaths to the directory to store data in.  If FileParentId and
-// ChunkParentID are not provided, it uses chunkCacheDir and fileCacheDir
-// flags, which have sensible defaults for your operating system.
+// filepaths to the directory to store data in.
 type Drive struct {
 	sync.RWMutex // serializes accesses to the directories on local disk
 	config       drive.Config
