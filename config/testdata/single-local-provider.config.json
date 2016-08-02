@@ -3,6 +3,8 @@
     "Provider": "local",
     "FileParentID": "/tmp/shade/files",
     "ChunkParentID": "/tmp/shade/chunks",
-    "Write": true
+    "Write": true,
+		"MaxFiles": 10000,
+		"MaxChunkBytes": 50000000000
   }
 ]

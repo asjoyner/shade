@@ -104,6 +104,8 @@ func TestParseConfig(t *testing.T) {
 					FileParentID:  "/tmp/shade/files",
 					ChunkParentID: "/tmp/shade/chunks",
 					Write:         true,
+					MaxFiles:      10000,
+					MaxChunkBytes: 50000000000,
 				},
 			},
 		},
@@ -112,8 +114,10 @@ func TestParseConfig(t *testing.T) {
 			configPath: "testdata/single-memory-provider.config.json",
 			want: []drive.Config{
 				{
-					Provider: "memory",
-					Write:    true,
+					Provider:      "memory",
+					Write:         true,
+					MaxFiles:      10000,
+					MaxChunkBytes: 50000000,
 				},
 			},
 		},

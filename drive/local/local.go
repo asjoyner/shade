@@ -13,8 +13,10 @@ import (
 	"os"
 	"path"
 	"sync"
+	"time"
 
 	"github.com/asjoyner/shade/drive"
+	"github.com/google/btree"
 )
 
 func init() {
@@ -23,6 +25,7 @@ func init() {
 
 // NewClient returns a fully initlized local client.
 func NewClient(c drive.Config) (drive.Client, error) {
+	// Sanity check the config
 	if c.ChunkParentID == "" {
 		return nil, errors.New("specify the path to store local chunks as ChunkParentID")
 	}
@@ -42,7 +45,50 @@ func NewClient(c drive.Config) (drive.Client, error) {
 		}
 	}
 
-	return &Drive{config: c}, nil
+	// Initialize the internal accounting
+	s := &Drive{
+		config: c,
+		files:  btree.New(2),
+		chunks: make(map[string]int64),
+	}
+
+	// Make note of all the filenames in FileParentID
+	files, err := ioutil.ReadDir(c.FileParentID)
+	if err != nil {
+		return nil, err
+	}
+	for _, fi := range files {
+		if !fi.IsDir() {
+			sha256sum, err := hex.DecodeString(fi.Name())
+			if err != nil {
+				log.Printf("file with non-hex string value name: %s", fi.Name())
+				continue
+			}
+			s.files.ReplaceOrInsert(Chunk{
+				sum:   sha256sum,
+				mtime: fi.ModTime().Unix(),
+			})
+		}
+	}
+
+	// Count the bytes in the local storage
+	chunks, err := ioutil.ReadDir(c.ChunkParentID)
+	if err != nil {
+		return nil, err
+	}
+	for _, fi := range chunks {
+		if !fi.IsDir() {
+			sha256sum, err := hex.DecodeString(fi.Name())
+			if err != nil {
+				log.Printf("file with non-hex string value name: %s", fi.Name())
+				continue
+			}
+			s.chunks[string(sha256sum)] = fi.ModTime().Unix()
+			s.chunkBytes += fi.Size()
+		}
+	}
+
+	return s, nil
 }
 
 // Drive implements the drive.Client interface by storing Files and Chunks
@@ -51,6 +97,27 @@ func NewClient(c drive.Config) (drive.Client, error) {
 type Drive struct {
 	sync.RWMutex // serializes accesses to the directories on local disk
 	config       drive.Config
+	files        *btree.BTree     // for accounting
+	chunks       map[string]int64 // for accounting
+	chunkBytes   int64            // for accounting
+}
+
+// Chunk describes an object cached to the filesystem, in a way that the btree
+// implementaiton can sort it.  This allows garbage collection by mtime.
+type Chunk struct {
+	sum   []byte
+	mtime int64
+}
+
+// Less ultimately describes the order chunks are deleted in.
+func (a Chunk) Less(bt btree.Item) bool {
+	b := bt.(Chunk)
+	if a.mtime < b.mtime {
+		return true
+	} else if a.mtime == b.mtime && string(a.sum) < string(b.sum) {
+		return true
+	}
+	return false
 }
 
 // ListFiles retrieves all of the File objects known to the client.  The return
@@ -60,20 +127,10 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 	var resp [][]byte
 	s.Lock()
 	defer s.Unlock()
-	nodes, err := ioutil.ReadDir(s.config.FileParentID)
-	if err != nil {
-		return nil, err
-	}
-	for _, n := range nodes {
-		if !n.IsDir() {
-			h, err := hex.DecodeString(n.Name())
-			if err != nil {
-				log.Printf("file with non-hex string value name: %s", n.Name())
-				continue
-			}
-			resp = append(resp, h)
-		}
-	}
+	s.files.Ascend(func(item btree.Item) bool {
+		resp = append(resp, item.(Chunk).sum)
+		return true
+	})
 	return resp, nil
 }
 
@@ -82,6 +139,13 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 func (s *Drive) PutFile(sha256sum, data []byte) error {
 	s.Lock()
 	defer s.Unlock()
+
+	if s.config.MaxFiles > 0 {
+		if err := cleanup(s.files, s.config.FileParentID, s.config.MaxFiles-1); err != nil {
+			return err
+		}
+	}
+
 	filename := path.Join(s.config.FileParentID, hex.EncodeToString(sha256sum))
 	if fh, err := os.Open(filename); err == nil {
 		fh.Close()
@@ -90,6 +154,10 @@ func (s *Drive) PutFile(sha256sum, data []byte) error {
 	if err := ioutil.WriteFile(filename, data, 0400); err != nil {
 		return err
 	}
+	s.files.ReplaceOrInsert(Chunk{
+		sum:   sha256sum,
+		mtime: time.Now().Unix(),
+	})
 	return nil
 }
 
@@ -119,6 +187,8 @@ func (s *Drive) PutChunk(sha256sum []byte, data []byte) error {
 	if err := ioutil.WriteFile(filename, data, 0400); err != nil {
 		return err
 	}
+	s.chunks[string(sha256sum)] = time.Now().Unix()
+	s.chunkBytes += int64(len(data))
 	return nil
 }
 
@@ -132,3 +202,21 @@ func (s *Drive) Local() bool { return true }
 
 // Persistent returns whether the storage is persistent across task restarts.
 func (s *Drive) Persistent() bool { return true }
+
+// cleanup iterates the provided BTree and removes the oldest entries from the
+// filesystem, in the provided directory, to bring the length below the
+// provided maximum size.
+func cleanup(files *btree.BTree, dir string, size uint64) error {
+	for {
+		len := files.Len()
+		if len == 0 || uint64(len) > size {
+			return nil
+		}
+		oldest := hex.EncodeToString(files.Min().(Chunk).sum)
+		r := path.Join(dir, oldest)
+		if err := os.Remove(r); err != nil {
+			return err
+		}
+		files.DeleteMin()
+	}
+}

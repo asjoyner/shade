@@ -49,6 +49,8 @@ type Config struct {
 	FileParentID  string
 	ChunkParentID string
 	Write         bool
+	MaxFiles      uint64
+	MaxChunkBytes uint64
 }
 
 // OAuthConfig contains the OAuth configuration information.
