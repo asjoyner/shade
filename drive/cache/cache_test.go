@@ -2,6 +2,7 @@ package cache
 
 import (
 	"testing"
+	"time"
 
 	"github.com/asjoyner/shade/drive"
 
@@ -43,6 +44,9 @@ func TestTwoMemoryClients(t *testing.T) {
 	// assert the actual class types to be able to check the internals
 	client0 := cc.clients[0].(*memory.Drive)
 	client1 := cc.clients[1].(*memory.Drive)
+
+	// Give the myriad goroutines a second to coalesce
+	time.Sleep(1 * time.Second)
 
 	compareMemoryDrives(t, client0, client1)
 }
