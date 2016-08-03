@@ -14,7 +14,9 @@ import (
 	"github.com/asjoyner/shade"
 )
 
-// TestFileRoundTrip is a helper function,
+// TestFileRoundTrip is a helper function, it allocates 100 random []byte,
+// stores them in the provided client as files, retrieves them, and ensures all
+// of the files were returned.
 func TestFileRoundTrip(t *testing.T, c Client) {
 	testFiles := randChunk(100)
 
