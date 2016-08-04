@@ -11,7 +11,7 @@ func TestFileRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient() for test config failed: %s", err)
 	}
-	drive.TestFileRoundTrip(t, mc)
+	drive.TestFileRoundTrip(t, mc, 100)
 }
 
 func TestChunkRoundTrip(t *testing.T) {
@@ -19,7 +19,7 @@ func TestChunkRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient() for test config failed: %s", err)
 	}
-	drive.TestChunkRoundTrip(t, mc)
+	drive.TestChunkRoundTrip(t, mc, 100)
 }
 
 func TestParallelRoundTrip(t *testing.T) {
@@ -27,5 +27,5 @@ func TestParallelRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient() for test config failed: %s", err)
 	}
-	drive.TestParallelRoundTrip(t, mc)
+	drive.TestParallelRoundTrip(t, mc, 100)
 }

@@ -18,12 +18,8 @@ import (
 // TestFileRoundTrip is a helper function, it allocates 100 random []byte,
 // stores them in the provided client as files, retrieves them, and ensures all
 // of the files were returned.
-func TestFileRoundTrip(t *testing.T, c Client) {
+func TestFileRoundTrip(t *testing.T, c Client, numFiles uint64) {
 	maxFiles := c.GetConfig().MaxFiles
-	numFiles := uint64(100)
-	if maxFiles > 0 {
-		numFiles = maxFiles * 2
-	}
 	testFiles := randChunk(numFiles)
 
 	// Populate testFiles into the client
@@ -51,7 +47,7 @@ func TestFileRoundTrip(t *testing.T, c Client) {
 		}
 	}
 	retainedFiles := fileOrder
-	if maxFiles != 0 {
+	if maxFiles != 0 && maxFiles < numFiles {
 		retainedFiles = fileOrder[numFiles-maxFiles:]
 	}
 
@@ -64,7 +60,11 @@ func TestFileRoundTrip(t *testing.T, c Client) {
 		t.Errorf("ListFiles returned too few files:")
 		t.Errorf("want: %d, got: %d:", len(retainedFiles), len(files))
 	}
-	// make a searching to see which files weren't returned faster
+	if maxFiles > 0 && uint64(len(files)) > maxFiles {
+		t.Errorf("ListFiles returned too many files:")
+		t.Errorf("want: %d, got: %d:", len(retainedFiles), len(files))
+	}
+	// make searching to see which files weren't returned faster
 	returnedFiles := make(map[string]bool, len(files))
 	for _, sum := range files {
 		returnedFiles[string(sum)] = true
@@ -94,8 +94,8 @@ func TestFileRoundTrip(t *testing.T, c Client) {
 // TestChunkRoundTrip allocates 100 random []byte, stores them in the client as
 // chunks, then retrieves each one by its Sum and compares the bytes that are
 // returned.
-func TestChunkRoundTrip(t *testing.T, c Client) {
-	testChunks := randChunk(uint64(100))
+func TestChunkRoundTrip(t *testing.T, c Client, n uint64) {
+	testChunks := randChunk(uint64(n))
 
 	// Populate test chunks into the client
 	for stringSum, chunk := range testChunks {
@@ -129,21 +129,21 @@ func TestChunkRoundTrip(t *testing.T, c Client) {
 
 // TestParallelRoundTrip calls 10 copies of both test functions in parallel, to
 // try to tickle race conditions in the implementation.
-func TestParallelRoundTrip(t *testing.T, c Client) {
+func TestParallelRoundTrip(t *testing.T, c Client, n uint64) {
 	var wg sync.WaitGroup
 	for i := 0; i < 3; i++ {
 		wg.Add(1)
-		go runAndDone(TestFileRoundTrip, t, c, &wg)
+		go runAndDone(TestFileRoundTrip, t, c, n, &wg)
 		wg.Add(1)
-		go runAndDone(TestChunkRoundTrip, t, c, &wg)
+		go runAndDone(TestChunkRoundTrip, t, c, n, &wg)
 	}
 	wg.Wait()
 	return
 }
 
-func runAndDone(f func(*testing.T, Client), t *testing.T, c Client, wg *sync.WaitGroup) {
+func runAndDone(f func(*testing.T, Client, uint64), t *testing.T, c Client, n uint64, wg *sync.WaitGroup) {
 	defer wg.Done()
-	f(t, c)
+	f(t, c, n)
 }
 
 // Generate some random test chunks

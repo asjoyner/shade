@@ -16,8 +16,8 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient() for test config failed: %s", err)
 	}
-	drive.TestFileRoundTrip(t, cc)
-	drive.TestChunkRoundTrip(t, cc)
+	drive.TestFileRoundTrip(t, cc, 100)
+	drive.TestChunkRoundTrip(t, cc, 100)
 }
 
 // Test that a client is required.
@@ -38,8 +38,8 @@ func TestTwoMemoryClients(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient() for test config failed: %s", err)
 	}
-	drive.TestFileRoundTrip(t, cc)
-	drive.TestChunkRoundTrip(t, cc)
+	drive.TestFileRoundTrip(t, cc, 100)
+	drive.TestChunkRoundTrip(t, cc, 100)
 
 	// assert the actual class types to be able to check the internals
 	client0 := cc.clients[0].(*memory.Drive)
@@ -61,8 +61,8 @@ func TestMemoryAndFailClients(t *testing.T) {
 		t.Fatalf("NewClient() for test config failed: %s", err)
 	}
 
-	drive.TestFileRoundTrip(t, cc)
-	drive.TestChunkRoundTrip(t, cc)
+	drive.TestFileRoundTrip(t, cc, 100)
+	drive.TestChunkRoundTrip(t, cc, 100)
 }
 
 func TestOnlyPersistentSatisfies(t *testing.T) {

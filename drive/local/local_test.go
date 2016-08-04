@@ -25,7 +25,7 @@ func TestFileRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initializing client: %s", err)
 	}
-	drive.TestFileRoundTrip(t, ld)
+	drive.TestFileRoundTrip(t, ld, 200)
 }
 
 func TestChunkRoundTrip(t *testing.T) {
@@ -42,7 +42,7 @@ func TestChunkRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initializing client: %s", err)
 	}
-	drive.TestChunkRoundTrip(t, ld)
+	drive.TestChunkRoundTrip(t, ld, 100)
 }
 
 func TestParallelRoundTrip(t *testing.T) {
@@ -55,12 +55,14 @@ func TestParallelRoundTrip(t *testing.T) {
 		Provider:      "localdisk",
 		FileParentID:  path.Join(dir, "files"),
 		ChunkParentID: path.Join(dir, "chunks"),
-		// setting MaxFiles or MaxChunkBytes here will be... unpredictable.
+		// MaxFiles and MaxChunkBytes must leave sufficient head room for the 10
+		// copies to function in parallel
+		MaxFiles: 1000,
 	})
 	if err != nil {
 		t.Fatalf("initializing client: %s", err)
 	}
-	drive.TestParallelRoundTrip(t, ld)
+	drive.TestParallelRoundTrip(t, ld, 100)
 }
 
 func TestDirRequired(t *testing.T) {
