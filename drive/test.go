@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/asjoyner/shade"
 )
@@ -18,7 +19,12 @@ import (
 // stores them in the provided client as files, retrieves them, and ensures all
 // of the files were returned.
 func TestFileRoundTrip(t *testing.T, c Client) {
-	testFiles := randChunk(100)
+	maxFiles := c.GetConfig().MaxFiles
+	numFiles := uint64(100)
+	if maxFiles > 0 {
+		numFiles = maxFiles * 2
+	}
+	testFiles := randChunk(numFiles)
 
 	// Populate testFiles into the client
 	for stringSum, file := range testFiles {
@@ -28,36 +34,68 @@ func TestFileRoundTrip(t *testing.T, c Client) {
 	}
 
 	// Populate them all again, which should not return an error.
+	fileOrder := make([]string, 0, numFiles)
 	for stringSum, file := range testFiles {
 		if err := c.PutFile([]byte(stringSum), []byte(file)); err != nil {
 			t.Fatal("Failed to put test file a second time: ", err)
 		}
+		// Make note of the order, for checking LRU behavior.
+		fileOrder = append(fileOrder, stringSum)
+
+		// The granularity of the local LRU is only 1 second, because it uses
+		// mtime to track which files are most recent.  Sleep at the boundary of
+		// the files we expect to be kept, so we ensure we know which ones will be
+		// kept.
+		if maxFiles > 0 && uint64(len(fileOrder)) == numFiles-maxFiles {
+			time.Sleep(1 * time.Second)
+		}
+	}
+	retainedFiles := fileOrder
+	if maxFiles != 0 {
+		retainedFiles = fileOrder[numFiles-maxFiles:]
 	}
 
-	// Get all the files which were populated
+	// Check all the files are returned by ListFiles
 	files, err := c.ListFiles()
 	if err != nil {
 		t.Fatalf("Failed to retrieve file map: %s", err)
 	}
-	for stringSum := range testFiles {
-		var found bool
-		for _, returnedSum := range files {
-			if bytes.Equal([]byte(stringSum), returnedSum) {
-				found = true
-			}
-		}
-		if !found {
+	if len(files) < len(retainedFiles) {
+		t.Errorf("ListFiles returned too few files:")
+		t.Errorf("want: %d, got: %d:", len(retainedFiles), len(files))
+	}
+	// make a searching to see which files weren't returned faster
+	returnedFiles := make(map[string]bool, len(files))
+	for _, sum := range files {
+		returnedFiles[string(sum)] = true
+	}
+
+	// check that the files returned are the ones expected
+	for _, stringSum := range retainedFiles {
+		if !returnedFiles[stringSum] {
 			t.Errorf("test file not returned: %x", stringSum)
-			t.Logf("%+v\n", files)
+		}
+	}
+
+	// Check that the contents of the files can be retrived with GetChunk
+	for _, stringSum := range retainedFiles {
+		returnedChunk, err := c.GetChunk([]byte(stringSum))
+		if err != nil {
+			t.Errorf("Failed to retrieve chunk \"%x\": %s", stringSum, err)
+			continue
+		}
+		if !bytes.Equal(returnedChunk, testFiles[stringSum]) {
+			t.Errorf("returned chunk for %x does not match", stringSum)
+			//t.Errorf("got %x, want: %x", returnedChunk, testFiles[stringSum])
 		}
 	}
 }
 
-// TestChunkRoundTrip allocates 100 random chunks of data, stores them in the
-// client, then retrieves each one by the its Sum and compares the bytes that
-// are returned.
+// TestChunkRoundTrip allocates 100 random []byte, stores them in the client as
+// chunks, then retrieves each one by its Sum and compares the bytes that are
+// returned.
 func TestChunkRoundTrip(t *testing.T, c Client) {
-	testChunks := randChunk(100)
+	testChunks := randChunk(uint64(100))
 
 	// Populate test chunks into the client
 	for stringSum, chunk := range testChunks {
@@ -109,9 +147,9 @@ func runAndDone(f func(*testing.T, Client), t *testing.T, c Client, wg *sync.Wai
 }
 
 // Generate some random test chunks
-func randChunk(n int) map[string][]byte {
+func randChunk(n uint64) map[string][]byte {
 	testChunks := make(map[string][]byte, n)
-	for i := 0; i < n; i++ {
+	for i := uint64(0); i < n; i++ {
 		c := make([]byte, 100*256)
 		rand.Read(c)
 		testChunks[string(shade.Sum(c))] = c

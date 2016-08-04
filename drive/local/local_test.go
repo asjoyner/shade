@@ -20,6 +20,7 @@ func TestFileRoundTrip(t *testing.T) {
 		Provider:      "localdisk",
 		FileParentID:  path.Join(dir, "files"),
 		ChunkParentID: path.Join(dir, "chunks"),
+		MaxFiles:      100,
 	})
 	if err != nil {
 		t.Fatalf("initializing client: %s", err)
@@ -54,6 +55,7 @@ func TestParallelRoundTrip(t *testing.T) {
 		Provider:      "localdisk",
 		FileParentID:  path.Join(dir, "files"),
 		ChunkParentID: path.Join(dir, "chunks"),
+		// setting MaxFiles or MaxChunkBytes here will be... unpredictable.
 	})
 	if err != nil {
 		t.Fatalf("initializing client: %s", err)

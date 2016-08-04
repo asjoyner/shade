@@ -8,6 +8,7 @@ package local
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -140,13 +141,25 @@ func (s *Drive) PutFile(sha256sum, data []byte) error {
 	s.Lock()
 	defer s.Unlock()
 
+	filename := path.Join(s.config.FileParentID, hex.EncodeToString(sha256sum))
+
+	// Handle duplicate push
+	if fi, err := os.Stat(filename); err == nil {
+		now := time.Now()
+		if err := os.Chtimes(filename, now, now); err != nil {
+			return fmt.Errorf("could not update mtime: %s", err)
+		}
+		s.files.Delete(Chunk{sum: sha256sum, mtime: fi.ModTime().Unix()})
+		s.files.ReplaceOrInsert(Chunk{sum: sha256sum, mtime: now.Unix()})
+		return nil
+	}
+
 	if s.config.MaxFiles > 0 {
 		if err := cleanup(s.files, s.config.FileParentID, s.config.MaxFiles-1); err != nil {
 			return err
 		}
 	}
 
-	filename := path.Join(s.config.FileParentID, hex.EncodeToString(sha256sum))
 	if fh, err := os.Open(filename); err == nil {
 		fh.Close()
 		return nil
@@ -154,9 +167,14 @@ func (s *Drive) PutFile(sha256sum, data []byte) error {
 	if err := ioutil.WriteFile(filename, data, 0400); err != nil {
 		return err
 	}
+	fi, err := os.Stat(filename)
+	if err != nil {
+		return fmt.Errorf("could not stat file after write: %s", err)
+	}
+
 	s.files.ReplaceOrInsert(Chunk{
 		sum:   sha256sum,
-		mtime: time.Now().Unix(),
+		mtime: fi.ModTime().Unix(),
 	})
 	return nil
 }
@@ -205,11 +223,12 @@ func (s *Drive) Persistent() bool { return true }
 
 // cleanup iterates the provided BTree and removes the oldest entries from the
 // filesystem, in the provided directory, to bring the length below the
-// provided maximum size.
+// provided maximum size.  cleanup is called at insert time, so size is Max-1,
+// to make space for the new entry being inserted.
 func cleanup(files *btree.BTree, dir string, size uint64) error {
 	for {
 		len := files.Len()
-		if len == 0 || uint64(len) > size {
+		if len == 0 || uint64(len) <= size {
 			return nil
 		}
 		oldest := hex.EncodeToString(files.Min().(Chunk).sum)
