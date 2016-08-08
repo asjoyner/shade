@@ -38,6 +38,7 @@ func TestChunkRoundTrip(t *testing.T) {
 		Provider:      "localdisk",
 		FileParentID:  path.Join(dir, "files"),
 		ChunkParentID: path.Join(dir, "chunks"),
+		MaxChunkBytes: 100 * 256 * 50,
 	})
 	if err != nil {
 		t.Fatalf("initializing client: %s", err)

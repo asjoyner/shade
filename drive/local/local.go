@@ -50,7 +50,7 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	s := &Drive{
 		config: c,
 		files:  btree.New(2),
-		chunks: make(map[string]int64),
+		chunks: btree.New(2),
 	}
 
 	// Make note of all the filenames in FileParentID
@@ -84,8 +84,11 @@ func NewClient(c drive.Config) (drive.Client, error) {
 				log.Printf("file with non-hex string value name: %s", fi.Name())
 				continue
 			}
-			s.chunks[string(sha256sum)] = fi.ModTime().Unix()
-			s.chunkBytes += fi.Size()
+			s.chunks.ReplaceOrInsert(Chunk{
+				sum:   sha256sum,
+				mtime: fi.ModTime().Unix(),
+			})
+			s.chunkBytes += uint64(fi.Size())
 		}
 	}
 
@@ -98,9 +101,9 @@ func NewClient(c drive.Config) (drive.Client, error) {
 type Drive struct {
 	sync.RWMutex // serializes accesses to the directories on local disk
 	config       drive.Config
-	files        *btree.BTree     // for accounting
-	chunks       map[string]int64 // for accounting
-	chunkBytes   int64            // for accounting
+	files        *btree.BTree // for accounting
+	chunks       *btree.BTree // for accounting
+	chunkBytes   uint64       // for accounting
 }
 
 // Chunk describes an object cached to the filesystem, in a way that the btree
@@ -137,13 +140,15 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 
 // PutFile writes the metadata describing a new file.
 // f should be marshalled JSON, and may be encrypted.
+//
+// TODO(asjoyner): collapse the logic in PutFile and PutChunk into shared code.
 func (s *Drive) PutFile(sha256sum, data []byte) error {
 	s.Lock()
 	defer s.Unlock()
 
 	filename := path.Join(s.config.FileParentID, hex.EncodeToString(sha256sum))
 
-	// Handle duplicate push
+	// Optimize duplicate push
 	if fi, err := os.Stat(filename); err == nil {
 		now := time.Now()
 		if err := os.Chtimes(filename, now, now); err != nil {
@@ -155,7 +160,7 @@ func (s *Drive) PutFile(sha256sum, data []byte) error {
 	}
 
 	if s.config.MaxFiles > 0 {
-		if err := cleanup(s.files, s.config.FileParentID, s.config.MaxFiles-1); err != nil {
+		if err := s.cleanup(true, 1); err != nil {
 			return err
 		}
 	}
@@ -167,11 +172,11 @@ func (s *Drive) PutFile(sha256sum, data []byte) error {
 	if err := ioutil.WriteFile(filename, data, 0400); err != nil {
 		return err
 	}
+
 	fi, err := os.Stat(filename)
 	if err != nil {
 		return fmt.Errorf("could not stat file after write: %s", err)
 	}
-
 	s.files.ReplaceOrInsert(Chunk{
 		sum:   sha256sum,
 		mtime: fi.ModTime().Unix(),
@@ -197,7 +202,26 @@ func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
 func (s *Drive) PutChunk(sha256sum []byte, data []byte) error {
 	s.Lock()
 	defer s.Unlock()
+
 	filename := path.Join(s.config.ChunkParentID, hex.EncodeToString(sha256sum))
+
+	// Optimize duplicate push
+	if fi, err := os.Stat(filename); err == nil {
+		now := time.Now()
+		if err := os.Chtimes(filename, now, now); err != nil {
+			return fmt.Errorf("could not update mtime: %s", err)
+		}
+		s.chunks.Delete(Chunk{sum: sha256sum, mtime: fi.ModTime().Unix()})
+		s.chunks.ReplaceOrInsert(Chunk{sum: sha256sum, mtime: now.Unix()})
+		return nil
+	}
+
+	if s.config.MaxChunkBytes > 0 {
+		if err := s.cleanup(false, uint64(len(data))); err != nil {
+			return err
+		}
+	}
+
 	if fh, err := os.Open(filename); err == nil {
 		fh.Close()
 		return nil
@@ -205,8 +229,16 @@ func (s *Drive) PutChunk(sha256sum []byte, data []byte) error {
 	if err := ioutil.WriteFile(filename, data, 0400); err != nil {
 		return err
 	}
-	s.chunks[string(sha256sum)] = time.Now().Unix()
-	s.chunkBytes += int64(len(data))
+
+	fi, err := os.Stat(filename)
+	if err != nil {
+		return fmt.Errorf("could not stat file after write: %s", err)
+	}
+	s.chunks.ReplaceOrInsert(Chunk{
+		sum:   sha256sum,
+		mtime: fi.ModTime().Unix(),
+	})
+	s.chunkBytes += uint64(len(data))
 	return nil
 }
 
@@ -225,17 +257,36 @@ func (s *Drive) Persistent() bool { return true }
 // filesystem, in the provided directory, to bring the length below the
 // provided maximum size.  cleanup is called at insert time, so size is Max-1,
 // to make space for the new entry being inserted.
-func cleanup(files *btree.BTree, dir string, size uint64) error {
+func (s *Drive) cleanup(file bool, size uint64) error {
+	var bt *btree.BTree
+	var dir string
+	if file {
+		bt = s.files
+		dir = s.config.FileParentID
+	} else {
+		bt = s.chunks
+		dir = s.config.ChunkParentID
+	}
 	for {
-		len := files.Len()
-		if len == 0 || uint64(len) <= size {
-			return nil
+		if file {
+			len := s.files.Len()
+			if len == 0 || uint64(len) <= s.config.MaxFiles-size {
+				return nil
+			}
+		} else {
+			if s.chunkBytes <= s.config.MaxChunkBytes-size {
+				return nil
+			}
 		}
-		oldest := hex.EncodeToString(files.Min().(Chunk).sum)
+
+		oldest := hex.EncodeToString(bt.Min().(Chunk).sum)
 		r := path.Join(dir, oldest)
 		if err := os.Remove(r); err != nil {
 			return err
 		}
-		files.DeleteMin()
+		bt.DeleteMin()
+		if !file {
+			s.chunkBytes -= size
+		}
 	}
 }

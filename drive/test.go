@@ -83,7 +83,7 @@ func TestFileRoundTrip(t *testing.T, c Client, numFiles uint64) {
 	for _, stringSum := range retainedFiles {
 		returnedChunk, err := c.GetChunk([]byte(stringSum))
 		if err != nil {
-			t.Errorf("Failed to retrieve chunk \"%x\": %s", stringSum, err)
+			t.Errorf("Failed to retrieve chunk %x: %s", stringSum, err)
 			continue
 		}
 		if !bytes.Equal(returnedChunk, testFiles[stringSum]) {
@@ -104,22 +104,26 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 	for stringSum, chunk := range testChunks {
 		err := c.PutChunk([]byte(stringSum), chunk)
 		if err != nil {
-			t.Fatalf("Failed to put chunk \"%x\": %s", stringSum, err)
+			t.Fatalf("Failed to put chunk %x: %s", stringSum, err)
+		} else {
+			//t.Logf("Put chunk %x", stringSum)
 		}
 	}
 
 	// Populate them all again, which should not return an error.
 	var firstRetainedChunk uint64
 	if maxBytes > 0 {
-		firstRetainedChunk = (numChunks * chunkSize) / maxBytes
+		firstRetainedChunk = maxBytes / chunkSize
 	}
 	orderedChunks := make([]string, 0, numChunks)
 	for stringSum, chunk := range testChunks {
 		err := c.PutChunk([]byte(stringSum), chunk)
 		if err != nil {
-			t.Fatalf("Failed to put test chunk a second time \"%x\": %s", stringSum, err)
+			t.Fatalf("Failed to put test chunk a second time %x: %s", stringSum, err)
 		}
 
+		// Make note of the order, for checking MaxChunkBytes LRU behavior.
+		orderedChunks = append(orderedChunks, stringSum)
 		// The granularity of the local LRU is only 1 second, because it uses
 		// mtime to track which chunks are most recent.  Sleep at the boundary
 		// of the chunks we expect to be kept, so we ensure we know which
@@ -127,8 +131,6 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 		if maxBytes > 0 && uint64(len(orderedChunks)) == firstRetainedChunk {
 			time.Sleep(1 * time.Second)
 		}
-		// Make note of the order, for checking MaxChunkBytes LRU behavior.
-		orderedChunks = append(orderedChunks, stringSum)
 	}
 
 	// Get each chunk by its Sum
@@ -137,24 +139,20 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 		// Check that the newest chunks were retained
 		if uint64(i) >= firstRetainedChunk {
 			if err != nil {
-				t.Errorf("Failed to retrieve chunk \"%x\": %s", stringSum, err)
+				t.Errorf("Failed to retrieve chunk %d of %d with sum %x: %s", i, len(orderedChunks), stringSum, err)
 				continue
 			}
 			if !bytes.Equal(returnedChunk, testChunks[stringSum]) {
-				t.Errorf("returned chunk for \"%x\"does not match", stringSum)
+				t.Errorf("returned chunk for %xdoes not match", stringSum)
 				// t.Errorf("got %q, want: %q", string(returnedChunk), string(chunk))
 			}
-		} else {
-			// Check that the oldest chunks were removed
-			for _, stringSum := range orderedChunks {
-				_, err := c.GetChunk([]byte(stringSum))
-				if err == nil {
-					t.Errorf("Retrieved chunk which should have been expired: %x", stringSum)
-				}
+		} else { // Check that the oldest chunks were removed
+			_, err := c.GetChunk([]byte(stringSum))
+			if err == nil {
+				t.Errorf("Retrieved chunk %d of %d which should have been expired: %x", i, len(orderedChunks), stringSum)
 			}
 		}
 	}
-
 }
 
 // TestParallelRoundTrip calls 10 copies of both test functions in parallel, to
