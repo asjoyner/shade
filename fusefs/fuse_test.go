@@ -24,6 +24,11 @@ func init() {
 	//fstestutil.DebugByDefault()
 }
 
+// TestFuseRead initializes a series of random chunks of data, calculates a
+// shade.Sum and shade.File for each, placed in a series of subdirectories
+// based on the Sum.  It uses PutChunk to put them into a memory client, and
+// mounts a fusefs on that memory client.  It then uses filepath.Walk to
+// iterate and validate the exposed filesystem.
 func TestFuseRead(t *testing.T) {
 	mountPoint, err := ioutil.TempDir("", "fusefsTest")
 	if err != nil {
@@ -208,6 +213,10 @@ func tearDownDir(dir string) {
 	}
 }
 
+// TestChunksForRead tests the function which calculates which chunks are
+// necessary to service a fuse read request.  It initializes a set of chunks,
+// then calls chunksForRead to ensure the correct series of chunks are returned
+// for each offset.
 func TestChunksForRead(t *testing.T) {
 	f := &shade.File{
 		Filename: "test",
