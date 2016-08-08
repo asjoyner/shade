@@ -15,6 +15,8 @@ import (
 	"github.com/asjoyner/shade"
 )
 
+const chunkSize uint64 = 100 * 256
+
 // TestFileRoundTrip is a helper function, it allocates 100 random []byte,
 // stores them in the provided client as files, retrieves them, and ensures all
 // of the files were returned.
@@ -30,25 +32,25 @@ func TestFileRoundTrip(t *testing.T, c Client, numFiles uint64) {
 	}
 
 	// Populate them all again, which should not return an error.
-	fileOrder := make([]string, 0, numFiles)
+	orderedFiles := make([]string, 0, numFiles)
 	for stringSum, file := range testFiles {
 		if err := c.PutFile([]byte(stringSum), []byte(file)); err != nil {
 			t.Fatal("Failed to put test file a second time: ", err)
 		}
 		// Make note of the order, for checking LRU behavior.
-		fileOrder = append(fileOrder, stringSum)
+		orderedFiles = append(orderedFiles, stringSum)
 
 		// The granularity of the local LRU is only 1 second, because it uses
 		// mtime to track which files are most recent.  Sleep at the boundary of
 		// the files we expect to be kept, so we ensure we know which ones will be
 		// kept.
-		if maxFiles > 0 && uint64(len(fileOrder)) == numFiles-maxFiles {
+		if maxFiles > 0 && uint64(len(orderedFiles)) == numFiles-maxFiles {
 			time.Sleep(1 * time.Second)
 		}
 	}
-	retainedFiles := fileOrder
+	retainedFiles := orderedFiles
 	if maxFiles != 0 && maxFiles < numFiles {
-		retainedFiles = fileOrder[numFiles-maxFiles:]
+		retainedFiles = orderedFiles[numFiles-maxFiles:]
 	}
 
 	// Check all the files are returned by ListFiles
@@ -94,8 +96,9 @@ func TestFileRoundTrip(t *testing.T, c Client, numFiles uint64) {
 // TestChunkRoundTrip allocates 100 random []byte, stores them in the client as
 // chunks, then retrieves each one by its Sum and compares the bytes that are
 // returned.
-func TestChunkRoundTrip(t *testing.T, c Client, n uint64) {
-	testChunks := randChunk(uint64(n))
+func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
+	maxBytes := c.GetConfig().MaxChunkBytes
+	testChunks := randChunk(uint64(numChunks))
 
 	// Populate test chunks into the client
 	for stringSum, chunk := range testChunks {
@@ -106,25 +109,52 @@ func TestChunkRoundTrip(t *testing.T, c Client, n uint64) {
 	}
 
 	// Populate them all again, which should not return an error.
+	var firstRetainedChunk uint64
+	if maxBytes > 0 {
+		firstRetainedChunk = (numChunks * chunkSize) / maxBytes
+	}
+	orderedChunks := make([]string, 0, numChunks)
 	for stringSum, chunk := range testChunks {
 		err := c.PutChunk([]byte(stringSum), chunk)
 		if err != nil {
 			t.Fatalf("Failed to put test chunk a second time \"%x\": %s", stringSum, err)
 		}
+
+		// The granularity of the local LRU is only 1 second, because it uses
+		// mtime to track which chunks are most recent.  Sleep at the boundary
+		// of the chunks we expect to be kept, so we ensure we know which
+		// chunks will be kept.
+		if maxBytes > 0 && uint64(len(orderedChunks)) == firstRetainedChunk {
+			time.Sleep(1 * time.Second)
+		}
+		// Make note of the order, for checking MaxChunkBytes LRU behavior.
+		orderedChunks = append(orderedChunks, stringSum)
 	}
 
 	// Get each chunk by its Sum
-	for stringSum, chunk := range testChunks {
+	for i, stringSum := range orderedChunks {
 		returnedChunk, err := c.GetChunk([]byte(stringSum))
-		if err != nil {
-			t.Errorf("Failed to retrieve chunk \"%x\": %s", stringSum, err)
-			continue
-		}
-		if !bytes.Equal(returnedChunk, chunk) {
-			t.Errorf("returned chunk for \"%x\"does not match", stringSum)
-			// t.Errorf("got %q, want: %q", string(returnedChunk), string(chunk))
+		// Check that the newest chunks were retained
+		if uint64(i) >= firstRetainedChunk {
+			if err != nil {
+				t.Errorf("Failed to retrieve chunk \"%x\": %s", stringSum, err)
+				continue
+			}
+			if !bytes.Equal(returnedChunk, testChunks[stringSum]) {
+				t.Errorf("returned chunk for \"%x\"does not match", stringSum)
+				// t.Errorf("got %q, want: %q", string(returnedChunk), string(chunk))
+			}
+		} else {
+			// Check that the oldest chunks were removed
+			for _, stringSum := range orderedChunks {
+				_, err := c.GetChunk([]byte(stringSum))
+				if err == nil {
+					t.Errorf("Retrieved chunk which should have been expired: %x", stringSum)
+				}
+			}
 		}
 	}
+
 }
 
 // TestParallelRoundTrip calls 10 copies of both test functions in parallel, to
@@ -150,7 +180,7 @@ func runAndDone(f func(*testing.T, Client, uint64), t *testing.T, c Client, n ui
 func randChunk(n uint64) map[string][]byte {
 	testChunks := make(map[string][]byte, n)
 	for i := uint64(0); i < n; i++ {
-		c := make([]byte, 100*256)
+		c := make([]byte, chunkSize)
 		rand.Read(c)
 		testChunks[string(shade.Sum(c))] = c
 	}
