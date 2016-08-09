@@ -70,16 +70,7 @@ func TestFuseRead(t *testing.T) {
 	// .. unless it starts with 0, so we exercise files at / too.
 	i := 0
 	for chunkStringSum := range testChunks {
-		chs := hex.EncodeToString([]byte(chunkStringSum))
-		var filename string
-		if strings.HasPrefix(chs, "0") {
-			filename = chs
-		} else {
-			for i := 0; i <= len(chs)-8; i += 8 {
-				filename = fmt.Sprintf("%s/%s", filename, chs[i:i+8])
-			}
-		}
-		filename = strings.TrimPrefix(filename, "/")
+		filename := pathFromStringSum(chunkStringSum)
 		file := shade.File{
 			Filename: filename,
 			Filesize: int64(len(chunkStringSum)),
@@ -118,32 +109,69 @@ func TestFuseRead(t *testing.T) {
 
 	seen := make(map[string]bool)
 	visit := func(path string, f os.FileInfo, err error) error {
-		if err != nil {
-			t.Errorf("failed to read path: %s", err)
-			return err
+		if err1 := checkPath(t, testChunks, seen, mountPoint, path, f, err); err1 != nil {
+			return err1
 		}
-		if !f.IsDir() {
-			t.Logf("Seen in FS %d: %s\n", len(seen)+1, path)
-			contents, err := ioutil.ReadFile(path)
-			if err != nil {
-				t.Error(err)
-				return nil
+		return nil
+	}
+
+	t.Logf("Attempting to walk the filesystem.")
+	if err := filepath.Walk(mountPoint, visit); err != nil {
+		t.Fatalf("filepath.Walk() returned %v", err)
+	}
+
+	if ns := len(seen); ns != nc {
+		t.Errorf("incomplete file set in fuse, want: %d, got %d", nc, ns)
+		for chunk := range testChunks {
+			if !seen[chunk] {
+				t.Errorf("missing file: %x", chunk)
 			}
-			filename := strings.TrimPrefix(path, mountPoint)
-			filename = strings.Replace(filename, "/", "", -1)
-			chs, err := hex.DecodeString(filename)
-			if err != nil {
-				t.Errorf("could not hex decode filename in Fuse FS: %s: %s", filename, err)
-				return nil
-			}
-			if bytes.Equal(contents, testChunks[string(chs)]) {
-				t.Errorf("contents of %s did not match, want: %s, got %s", filename, testChunks[filename], contents)
-				return nil
-			}
-			if seen[string(chs)] {
-				t.Errorf("saw chunk twice: %x", chs)
-			}
-			seen[string(chs)] = true
+		}
+	}
+}
+
+// TestFuseRoundTrip creates an empty memory client, mounts a fusefs filesystem
+// against it, generates random test data, writes it to the filesystem, reads
+// it back out and validates it is as expected.
+func TestFuseRoundtrip(t *testing.T) {
+	mountPoint, err := ioutil.TempDir("", "fusefsTest")
+	if err != nil {
+		t.Fatalf("could not acquire TempDir: %s", err)
+	}
+	defer tearDownDir(mountPoint)
+
+	t.Logf("Mounting fuse filesystem at: %s", mountPoint)
+	if _, _, err := setupFuse(t, mountPoint); err != nil {
+		t.Fatalf("could not mount fuse: %s", err)
+	}
+	defer tearDownFuse(t, mountPoint)
+
+	chunkSize := 100 * 256 // in bytes
+	nc := 50               // number of chunks
+
+	// Generate some random file contents
+	testChunks := make(map[string][]byte, nc)
+	for i := 0; i < nc; i++ {
+		n := make([]byte, chunkSize)
+		rand.Read(n)
+		s := sha256.Sum256(n)
+		chunkSum := string(s[:])
+		testChunks[chunkSum] = n
+	}
+
+	// Write those testChunks to the fusefs
+	for stringSum, chunk := range testChunks {
+		filename := pathFromStringSum(stringSum)
+		if err := ioutil.WriteFile(filename, chunk, 0400); err != nil {
+			t.Fatalf(err.Error())
+		}
+	}
+
+	// Validate all the files have the right contents
+	seen := make(map[string]bool)
+	visit := func(path string, f os.FileInfo, err error) error {
+		if err1 := checkPath(t, testChunks, seen, mountPoint, path, f, err); err1 != nil {
+			return err1
 		}
 		return nil
 	}
@@ -211,6 +239,51 @@ func tearDownDir(dir string) {
 	if err := os.RemoveAll(dir); err != nil {
 		fmt.Printf("Could not clean up: %s", err)
 	}
+}
+
+func pathFromStringSum(sum string) string {
+	chs := hex.EncodeToString([]byte(sum))
+	var filename string
+	if strings.HasPrefix(chs, "0") {
+		filename = chs
+	} else {
+		// TODO: don't call Sprintf so often.  :)
+		for i := 0; i <= len(chs)-8; i += 8 {
+			filename = fmt.Sprintf("%s/%s", filename, chs[i:i+8])
+		}
+	}
+	return strings.TrimPrefix(filename, "/")
+}
+
+func checkPath(t *testing.T, testChunks map[string][]byte, seen map[string]bool, mountPoint, path string, f os.FileInfo, err error) error {
+	if err != nil {
+		t.Errorf("failed to read path: %s", err)
+		return err
+	}
+	if !f.IsDir() {
+		t.Logf("Seen in FS %d: %s\n", len(seen)+1, path)
+		contents, err := ioutil.ReadFile(path)
+		if err != nil {
+			t.Error(err)
+			return nil
+		}
+		filename := strings.TrimPrefix(path, mountPoint)
+		filename = strings.Replace(filename, "/", "", -1)
+		chs, err := hex.DecodeString(filename)
+		if err != nil {
+			t.Errorf("could not hex decode filename in Fuse FS: %s: %s", filename, err)
+			return nil
+		}
+		if bytes.Equal(contents, testChunks[string(chs)]) {
+			t.Errorf("contents of %s did not match, want: %s, got %s", filename, testChunks[filename], contents)
+			return nil
+		}
+		if seen[string(chs)] {
+			t.Errorf("saw chunk twice: %x", chs)
+		}
+		seen[string(chs)] = true
+	}
+	return nil
 }
 
 // TestChunksForRead tests the function which calculates which chunks are
