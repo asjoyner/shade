@@ -14,7 +14,8 @@ import (
 	"github.com/asjoyner/shade/drive"
 )
 
-// Node is a very compact representation of a file
+// Node is a very compact representation of a shade.File.  It can also be used
+// to represent a sythetic directory, for tree traversal.
 type Node struct {
 	// Filename is the complete path to a node, with no leading or trailing
 	// slash.
@@ -60,8 +61,8 @@ func NewTree(client drive.Client, refresh *time.Ticker) (*Tree, error) {
 	t := &Tree{
 		client: client,
 		nodes: map[string]Node{
-			"/": {
-				Filename: "/",
+			"": {
+				Filename: "",
 				Children: make(map[string]bool),
 			}},
 	}
@@ -76,6 +77,7 @@ func NewTree(client drive.Client, refresh *time.Ticker) (*Tree, error) {
 
 // NodeByPath returns a Node describing the given path.
 func (t *Tree) NodeByPath(p string) (Node, error) {
+	p = strings.TrimPrefix(p, "/")
 	t.nm.RLock()
 	defer t.nm.RUnlock()
 	if n, ok := t.nodes[p]; ok {
@@ -130,6 +132,19 @@ func (t *Tree) NumNodes() int {
 	t.nm.RLock()
 	defer t.nm.RUnlock()
 	return len(t.nodes)
+}
+
+// Mkdir provides a way to create synthetic directories, for the Mkdir Fuse op
+func (t *Tree) Mkdir(dir string) Node {
+	dir = strings.TrimPrefix(dir, "/")
+	t.nm.Lock()
+	defer t.nm.Unlock()
+	t.nodes[dir] = Node{
+		Filename: dir,
+		Children: make(map[string]bool),
+	}
+	t.addParents(dir)
+	return t.nodes[dir]
 }
 
 // GetChunk is not yet implemented.
@@ -192,11 +207,7 @@ func (t *Tree) Refresh() error {
 // recursive function to update parent dirs
 func (t *Tree) addParents(filepath string) {
 	dir, f := path.Split(filepath)
-	if dir == "" {
-		dir = "/"
-	} else {
-		dir = strings.TrimSuffix(dir, "/")
-	}
+	dir = strings.TrimSuffix(dir, "/")
 	t.log(fmt.Sprintf("adding %q as a child of %q", f, dir))
 	// TODO(asjoyner): handle file + directory collisions
 	if parent, ok := t.nodes[dir]; !ok {
@@ -207,8 +218,9 @@ func (t *Tree) addParents(filepath string) {
 		}
 	} else {
 		parent.Children[f] = true
+		return
 	}
-	if dir != "/" {
+	if dir != "" {
 		t.addParents(dir)
 	}
 }
@@ -227,6 +239,6 @@ func (t *Tree) Debug() {
 
 func (t *Tree) log(msg string) {
 	if t.debug {
-		log.Printf("CACHE: %s\n", msg)
+		log.Printf("CACHE: %s", msg)
 	}
 }

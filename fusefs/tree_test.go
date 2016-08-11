@@ -60,19 +60,19 @@ func TestNodeByPath(t *testing.T) {
 func TestAddParent(t *testing.T) {
 	ts := map[string]map[string]string{
 		"foo/bar/baz": map[string]string{
-			"/":       "foo",
+			"":        "foo",
 			"foo":     "bar",
 			"foo/bar": "baz",
 		},
 		"foo/bar/baz/rosencrantz/guildenstern": map[string]string{
-			"/":                       "foo",
+			"":                        "foo",
 			"foo":                     "bar",
 			"foo/bar":                 "baz",
 			"foo/bar/baz":             "rosencrantz",
 			"foo/bar/baz/rosencrantz": "guildenstern",
 		},
 		"particularlylongname/shortishname": map[string]string{
-			"/": "particularlylongname",
+			"": "particularlylongname",
 			"particularlylongname": "shortishname",
 		},
 	}

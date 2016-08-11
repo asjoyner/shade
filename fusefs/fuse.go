@@ -286,7 +286,7 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 		ci := sc.inode.FromPath(childPath)
 		data = fuse.AppendDirent(data, fuse.Dirent{Inode: ci, Name: name, Type: childType})
 	}
-	fuse.Debug(fmt.Sprintf("ReadDir Response: %v", data))
+	fuse.Debug(fmt.Sprintf("ReadDir Response: %s", string(data)))
 
 	fuseutil.HandleRead(req, resp, data)
 	req.Respond(resp)
@@ -495,44 +495,37 @@ func (sc *Server) create(req *fuse.CreateRequest) {
 	*/
 }
 
+// mkdir create a directory in the tree.  This is very cheap, because in Shade,
+// directories are entirey ephemeral concepts, only files are stored remotely.
 func (sc *Server) mkdir(req *fuse.MkdirRequest) {
-	// TODO(asjoyner): shadeify
-	req.RespondError(fuse.ENOSYS)
-	/*
-		// TODO: if allow_other, require uid == invoking uid to allow writes
-		pInode := uint64(req.Header.Node)
-		pId, err := sc.db.FileIdForInode(pInode)
-		if err != nil {
-			debug.Printf("failed to get parent fileid: %v", err)
-			req.RespondError(fuse.EIO)
-			return
-		}
-		p := []*drive.ParentReference{&drive.ParentReference{Id: pId}}
-		file := &drive.File{Title: req.Name, MimeType: driveFolderMimeType, Parents: p}
-		file, err = sc.service.Files.Insert(file).Do()
-		if err != nil {
-			debug.Printf("Insert failed: %v", err)
-			req.RespondError(fuse.EIO)
-			return
-		}
-		debug.Printf("Child of %v created in drive: %+v", file.Parents[0].Id, file)
-		f, err := sc.db.UpdateFile(nil, file)
-		if err != nil {
-			debug.Printf("failed to update levelDB for %v: %v", f.Id, err)
-			// The write has happened to drive, but we failed to update the kernel.
-			// The Changes API will update Fuse, and when the kernel metadata for
-			// the parent directory expires, the new dir will become visible.
-			req.RespondError(fuse.EIO)
-			return
-		}
-		sc.db.FlushCachedInode(pInode)
-		resp := &fuse.MkdirResponse{}
-		resp.Node = fuse.NodeID(f.Inode)
-		resp.EntryValid = *kernelRefresh
-		resp.Attr = sc.attrFromNode(*f, inode)
-		fuse.Debug(fmt.Sprintf("Mkdir(%v): %+v", req.Name, f))
-		req.Respond(resp)
-	*/
+	// TODO: if allow_other, require uid == invoking uid to allow writes
+	p, err := sc.nodeByID(req.Header.Node)
+	if err != nil {
+		req.RespondError(fuse.ENOENT)
+		return
+	}
+
+	if !p.Synthetic() {
+		// TODO: is this right?  we want to return "Not a directory"
+		req.RespondError(fuse.EEXIST)
+		return
+	}
+	if p.Children[req.Name] {
+		req.RespondError(fuse.EEXIST)
+	}
+
+	dir := path.Join(p.Filename, req.Name)
+	n := sc.tree.Mkdir(dir)
+
+	inode := sc.inode.FromPath(dir)
+
+	resp := fuse.LookupResponse{
+		Node:       fuse.NodeID(inode),
+		EntryValid: *kernelRefresh,
+		Attr:       sc.attrFromNode(n, inode),
+	}
+	fuse.Debug(fmt.Sprintf("Mkdir(%v): %+v", req.Name, resp))
+	req.Respond(&fuse.MkdirResponse{LookupResponse: resp})
 }
 
 // Removes the inode described by req.Header.Node (doubles as rmdir)

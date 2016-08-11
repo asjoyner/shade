@@ -21,7 +21,7 @@ import (
 )
 
 func init() {
-	// This may be helpful if the tests fail.
+	// This is helpful when the tests fail.
 	//fstestutil.DebugByDefault()
 }
 
