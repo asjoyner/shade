@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -161,7 +162,10 @@ func TestFuseRoundtrip(t *testing.T) {
 
 	// Write those testChunks to the fusefs
 	for stringSum, chunk := range testChunks {
-		filename := pathFromStringSum(stringSum)
+		filename := path.Join(mountPoint, pathFromStringSum(stringSum))
+		if err := os.MkdirAll(path.Dir(filename), 0700); err != nil {
+			t.Fatalf(err.Error())
+		}
 		if err := ioutil.WriteFile(filename, chunk, 0400); err != nil {
 			t.Fatalf(err.Error())
 		}
