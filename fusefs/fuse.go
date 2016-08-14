@@ -375,7 +375,9 @@ func (sc *Server) open(req *fuse.OpenRequest) {
 		return
 	}
 
-	// TODO: if allow_other, require uid == invoking uid to allow writes
+	if !req.Flags.IsReadOnly() { // write access requested
+		// TODO: if allow_other, require uid == invoking uid to allow writes
+	}
 
 	// get the shade.File for the node, stuff it in the Handle
 	f, err := sc.tree.FileByNode(n)
@@ -431,68 +433,36 @@ func (sc *Server) release(req *fuse.ReleaseRequest) {
 	req.Respond()
 }
 
-// Create file in drive, allocate kernel filehandle for writes
+// Allocate handle, corresponding to kernel filehandle, for writes
 func (sc *Server) create(req *fuse.CreateRequest) {
-	// TODO(asjoyner): shadeify
-	req.RespondError(fuse.ENOSYS)
-	/*
-		pInode := uint64(req.Header.Node)
-		parent, err := sc.db.FileByInode(pInode)
-		if err != nil {
-			debug.Printf("failed to get parent file: %v", err)
-			req.RespondError(fuse.EIO)
-			return
-		}
-		p := &drive.ParentReference{Id: parent.Id}
+	pn, err := sc.nodeByID(req.Header.Node)
+	if err != nil {
+		req.RespondError(fuse.ENOENT)
+		return
+	}
+	// create child node
+	fn := path.Join(pn.Filename, req.Name)
+	n := sc.tree.Create(fn)
+	inode := sc.inode.FromPath(fn)
+	// create handle
+	hID := sc.allocHandle(fuse.NodeID(inode), &shade.File{Filename: fn})
 
-		f := &drive.File{Title: req.Name}
-		f.Parents = []*drive.ParentReference{p}
-		f, err = sc.service.Files.Insert(f).Do()
-		if err != nil {
-			debug.Printf("Files.Insert(f).Do(): %v", err)
-			req.RespondError(fuse.EIO)
-			return
-		}
-		inode, err := sc.db.InodeForFileId(f.Id)
-		if err != nil {
-			debug.Printf("failed creating inode for %v: %v", req.Name, err)
-			req.RespondError(fuse.EIO)
-			return
-		}
+	// Respond to tell the fuse kernel module about the file
+	resp := fuse.CreateResponse{
+		// describes the opened handle
+		OpenResponse: fuse.OpenResponse{
+			Handle: fuse.HandleID(hID),
+		},
+		// describes the created file
+		LookupResponse: fuse.LookupResponse{
+			Node:       fuse.NodeID(inode),
+			EntryValid: *kernelRefresh,
+			Attr:       sc.attrFromNode(n, inode),
+		},
+	}
+	fuse.Debug(fmt.Sprintf("Create(%v in %v): %+v", req.Name, pn.Filename, resp))
 
-		r, w := io.Pipe() // plumbing between WriteRequest and Drive
-		h := sc.allocHandle(fuse.NodeID(inode), w)
-
-		go sc.updateInDrive(f, r)
-
-		// Tell fuse and the OS about the file
-		df, err := sc.db.UpdateFile(nil, f)
-		if err != nil {
-			debug.Printf("failed to update levelDB for %v: %v", f.Id, err)
-			// The write has happened to drive, but we failed to update the kernel.
-			// The Changes API will update Fuse, and when the kernel metadata for
-			// the parent directory expires, the new file will become visible.
-			req.RespondError(fuse.EIO)
-			return
-		}
-
-		resp := fuse.CreateResponse{
-			// describes the opened handle
-			OpenResponse: fuse.OpenResponse{
-				Handle: fuse.HandleID(h),
-				Flags:  fuse.OpenNonSeekable,
-			},
-			// describes the created file
-			LookupResponse: fuse.LookupResponse{
-				Node:       fuse.NodeID(inode),
-				EntryValid: *kernelRefresh,
-				Attr:       sc.attrFromNode(*df, inode),
-			},
-		}
-		fuse.Debug(fmt.Sprintf("Create(%v in %v): %+v", req.Name, parent.Title, resp))
-
-		req.Respond(&resp)
-	*/
+	req.Respond(&resp)
 }
 
 // mkdir create a directory in the tree.  This is very cheap, because in Shade,

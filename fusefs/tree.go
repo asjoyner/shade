@@ -147,8 +147,17 @@ func (t *Tree) Mkdir(dir string) Node {
 	return t.nodes[dir]
 }
 
-// GetChunk is not yet implemented.
-func (t *Tree) GetChunk(sha256sum []byte) {
+// Create adds a new shade.File node to the tree
+func (t *Tree) Create(filename string) Node {
+	t.nm.Lock()
+	defer t.nm.Unlock()
+	node := Node{
+		Filename:  filename,
+		Sha256sum: []byte("f00d"),
+	}
+	t.nodes[node.Filename] = node
+	t.addParents(node.Filename)
+	return node
 }
 
 // Refresh updates the cached view of the Tree by calling ListFiles and
