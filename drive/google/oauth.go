@@ -1,7 +1,6 @@
 package google
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -14,6 +13,7 @@ import (
 
 	gdrive "google.golang.org/api/drive/v3"
 
+	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 )
 
@@ -60,14 +60,14 @@ func getClient(ctx context.Context, config *oauth2.Config) *http.Client {
 // fetchToken uses Config to request a Token.
 func fetchToken(config *oauth2.Config) *oauth2.Token {
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("Go to the following link in your browser then type the "+
-		"authorization code: \n%v\n", authURL)
+	fmt.Printf("Visit this URL in your browser: \n%v\n", authURL)
 
 	var code string
+	fmt.Print("Enter your authorization code: ")
 	if _, err := fmt.Scan(&code); err != nil {
 		log.Fatalf("Unable to read authorization code %v", err)
 	}
-	log.Printf("Read code: %q", code)
+	log.Printf("\nRead code: %q\n", code)
 
 	// TODO(cfunkhouser): Get a meaningful context here.
 	tok, err := config.Exchange(context.TODO(), code)

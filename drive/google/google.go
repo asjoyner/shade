@@ -2,7 +2,6 @@ package google
 
 import (
 	"bytes"
-	"context"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -11,6 +10,8 @@ import (
 	gdrive "google.golang.org/api/drive/v3"
 
 	"github.com/asjoyner/shade/drive"
+
+	"golang.org/x/net/context"
 )
 
 // listFilesQuery is a Google Drive API query string which will return all
