@@ -60,6 +60,9 @@ func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
 	s.cm.RLock()
 	defer s.cm.RUnlock()
 	if chunk, ok := s.chunks[string(sha256sum)]; ok {
+		// make a copy, to ensure the caller can't modify the underlying array
+		retChunk := make([]byte, len(chunk))
+		copy(retChunk, chunk)
 		return chunk, nil
 	}
 	return nil, errors.New("chunk not found")
