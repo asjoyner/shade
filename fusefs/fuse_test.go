@@ -7,11 +7,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
+	"math/big"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
@@ -23,6 +25,8 @@ import (
 func init() {
 	// This is helpful when the tests fail.
 	//fstestutil.DebugByDefault()
+	// Exercise chunk boundaries with smaller file sizes.
+	DefaultChunkSizeBytes = 5 * 1024 * 1024
 }
 
 // TestFuseRead initializes a series of random chunks of data, calculates a
@@ -141,31 +145,39 @@ func TestFuseRoundtrip(t *testing.T) {
 	}
 	defer tearDownDir(mountPoint)
 
-	t.Logf("Mounting fuse filesystem at: %s", mountPoint)
+	fmt.Printf("Mounting fuse filesystem at: %s\n", mountPoint)
 	if _, _, err := setupFuse(t, mountPoint); err != nil {
 		t.Fatalf("could not mount fuse: %s", err)
 	}
 	defer tearDownFuse(t, mountPoint)
 
-	chunkSize := 100 * 256 // in bytes
-	nc := 50               // number of chunks
+	maxFileSizeBytes := int64(DefaultChunkSizeBytes * 3)
+	nf := 10 // number of files
+	fmt.Printf("DefaultChunkSizeBytes: %d\n", DefaultChunkSizeBytes)
+	fmt.Printf("maxFileSizeBytes: %d\n", maxFileSizeBytes)
 
 	// Generate some random file contents
-	testChunks := make(map[string][]byte, nc)
-	for i := 0; i < nc; i++ {
-		n := make([]byte, chunkSize)
+	testFiles := make(map[string][]byte, nf)
+	for i := 0; i < nf; i++ {
+		fileSize, err := rand.Int(rand.Reader, big.NewInt(maxFileSizeBytes))
+		if err != nil {
+			t.Fatalf("could not calculate random filesize: %s", err)
+		}
+		n := make([]byte, int(fileSize.Int64()))
 		rand.Read(n)
 		s := sha256.Sum256(n)
 		chunkSum := string(s[:])
-		testChunks[chunkSum] = n
+		testFiles[chunkSum] = n
 	}
 
-	// Write those testChunks to the fusefs
-	for stringSum, chunk := range testChunks {
+	// Write those testFiles to the fusefs
+	for stringSum, chunk := range testFiles {
 		filename := path.Join(mountPoint, pathFromStringSum(stringSum))
 		if err := os.MkdirAll(path.Dir(filename), 0700); err != nil {
 			t.Fatalf(err.Error())
 		}
+		fmt.Printf("Writing %d bytes to %s\n", len(chunk), filename)
+		time.Sleep(3 * time.Second)
 		if err := ioutil.WriteFile(filename, chunk, 0400); err != nil {
 			t.Fatalf(err.Error())
 		}
@@ -174,20 +186,20 @@ func TestFuseRoundtrip(t *testing.T) {
 	// Validate all the files have the right contents
 	seen := make(map[string]bool)
 	visit := func(path string, f os.FileInfo, err error) error {
-		if err1 := checkPath(t, testChunks, seen, mountPoint, path, f, err); err1 != nil {
+		if err1 := checkPath(t, testFiles, seen, mountPoint, path, f, err); err1 != nil {
 			return err1
 		}
 		return nil
 	}
 
-	t.Logf("Attempting to walk the filesystem.")
+	fmt.Printf("Attempting to walk the filesystem.\n")
 	if err := filepath.Walk(mountPoint, visit); err != nil {
 		t.Fatalf("filepath.Walk() returned %v", err)
 	}
 
-	if ns := len(seen); ns != nc {
-		t.Errorf("incomplete file set in fuse, want: %d, got %d", nc, ns)
-		for chunk := range testChunks {
+	if ns := len(seen); ns != nf {
+		t.Errorf("incomplete file set in fuse, want: %d, got %d", nf, ns)
+		for chunk := range testFiles {
 			if !seen[chunk] {
 				t.Errorf("missing file: %x", chunk)
 			}
@@ -368,5 +380,83 @@ func TestChunksForRead(t *testing.T) {
 	_, err = chunksForRead(f, 0, -1)
 	if err == nil {
 		t.Errorf("expected error from chunksForRead(%+v, %d, %d), got nil", f, -1024, 1)
+	}
+}
+
+// Test the method which updates a handle with new data during a write
+func TestApplyWrite(t *testing.T) {
+	// setup some initial data for the test
+	mc, err := memory.NewClient(drive.Config{Provider: "memory"})
+	if err != nil {
+		t.Fatalf("NewClient() for test config failed: %s", err)
+	}
+	posString := []byte("01234567")
+	s := sha256.Sum256(posString)
+	posStringSum := s[:]
+	if err := mc.PutChunk(posStringSum, posString); err != nil {
+		t.Fatalf("Failed to put chunk \"%x\": %s", s, err)
+	}
+
+	testSet := []struct {
+		before map[int64]shade.Chunk
+		offset int64
+		data   []byte
+		after  map[int64][]byte
+	}{
+		{
+			map[int64]shade.Chunk{},
+			0,
+			[]byte("yep"),
+			map[int64][]byte{0: []byte("yep")},
+		},
+		{
+			map[int64]shade.Chunk{
+				0: {Index: 0, Sha256: posStringSum},
+				1: {Index: 0, Sha256: posStringSum},
+			},
+			0,
+			[]byte("yep"),
+			map[int64][]byte{0: []byte("yep34567")},
+		},
+		{
+			map[int64]shade.Chunk{
+				0: {Index: 0, Sha256: posStringSum},
+				1: {Index: 0, Sha256: posStringSum},
+			},
+			3,
+			[]byte("straddle"),
+			map[int64][]byte{0: []byte("012strad"), 1: []byte("dle34567")},
+		},
+		{
+			map[int64]shade.Chunk{
+				0: {Index: 0, Sha256: posStringSum},
+				1: {Index: 0, Sha256: posStringSum},
+				2: {Index: 0, Sha256: posStringSum},
+			},
+			3,
+			[]byte("straddlethreechunks"),
+			map[int64][]byte{0: []byte("012strad"), 1: []byte("dlethree"), 2: []byte("chunks67")},
+		},
+	}
+	for i, ts := range testSet {
+		h := handle{
+			file: &shade.File{
+				Chunksize: 8,
+			},
+			chunks: ts.before,
+			dirty:  make(map[int64][]byte),
+		}
+		h.applyWrite(ts.data, ts.offset, mc)
+		if len(h.dirty) != len(ts.after) {
+			t.Fatalf("%d: applyWrite(%s, %d..), wrong number of chunks, want: %d, got: %d", i, ts.data, ts.offset, len(ts.after), len(h.dirty))
+		}
+		for i := 0; i < len(h.dirty); i++ {
+			i := int64(i)
+			if !bytes.Equal(ts.after[i], h.dirty[i]) {
+				t.Errorf("applyWrite(%q, %d..), chunk %d did not match.", ts.data, ts.offset, i)
+				// This Errorf can be helpful, but is very verbose.
+				t.Errorf("want: %q, got: %q", ts.after[i], h.dirty[i])
+			}
+		}
 	}
 }

@@ -4,6 +4,7 @@ package fusefs
 // and the Shade Drive API.
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -26,12 +27,13 @@ import (
 
 var kernelRefresh = flag.Duration("kernel-refresh", time.Minute, "How long the kernel should cache metadata entries.")
 
+// DefaultChunkSizeBytes defines the default for newly created shade.File(s)
+var DefaultChunkSizeBytes = 16 * 1024 * 1024
+
 const blockSize uint32 = 4096
 
 // Server holds the state about the fuse connection
 type Server struct {
-	//db         *drive_db.DriveDB
-	//service    *drive.Service
 	client  drive.Client
 	tree    *Tree
 	inode   *InodeMap
@@ -68,11 +70,75 @@ func New(client drive.Client, conn *fuse.Conn, refresh *time.Ticker) (*Server, e
 }
 
 type handle struct {
-	inode fuse.NodeID
-	file  *shade.File
-	// TODO(asjoyner): track dirty chunks here?
-	writer   *io.PipeWriter
-	lastByte int64
+	inode  fuse.NodeID
+	file   *shade.File
+	chunks map[int64]shade.Chunk
+	dirty  map[int64][]byte
+}
+
+// return the current bytes of a chunk
+// TODO: write a test for this
+func (h *handle) chunkBytes(chunkNum int64, client drive.Client) ([]byte, error) {
+	if dirtyChunk, ok := h.dirty[chunkNum]; ok {
+		return dirtyChunk, nil
+	}
+	cleanChunk, ok := h.chunks[chunkNum]
+	if !ok { // no chunk data at this offset (yet)
+		return make([]byte, 0, int64(h.file.Chunksize)), nil
+	}
+	cb, err := client.GetChunk(cleanChunk.Sha256)
+	if err != nil {
+		return nil, err
+	}
+	return cb, nil
+}
+
+// applyWrite takes data, at an offset, and applies it to the open file as
+// dirty blocks.  It uses the provided client to look up the existing content
+// of the associated shade.File object, as necessary.
+//
+// For some additional notes on how this works, see Chunk Notes.md.
+func (h *handle) applyWrite(data []byte, offset int64, client drive.Client) error {
+	// determine which chunks need to be updated
+	chunkSize := int64(h.file.Chunksize)
+	writeSize := int64(len(data))
+	firstChunk := offset / chunkSize
+	eoWrite := offset + writeSize
+	lastChunk := eoWrite / chunkSize
+	dataPtr := 0
+	for cn := firstChunk; cn <= lastChunk; cn++ {
+		chunkStart := cn * chunkSize          // the position of the chunk in the file
+		chunkWriteEnd := eoWrite - chunkStart // the end of the write in this chunk
+		var chunkOffset int64                 // the start of the write inside this chunk
+		if offset > chunkStart {
+			chunkOffset = offset - chunkStart
+		}
+		cb, err := h.chunkBytes(cn, client)
+		if err != nil {
+			return err
+		}
+
+		ncb := make([]byte, chunkSize)
+		copy(ncb, cb[:chunkOffset])
+		n := copy(ncb[chunkOffset:], data[dataPtr:])
+		dataPtr += n
+		if int64(len(cb)) > chunkWriteEnd {
+			// if the write doesn't write past the end of the existing data, append
+			// the rest of the existing chunk.
+			copy(ncb[chunkWriteEnd:], cb[chunkWriteEnd:])
+		}
+		// truncate ncb at the chunkWriteEnd, or cb, which ever is greater
+		if cn == lastChunk && chunkWriteEnd < chunkSize {
+			if chunkWriteEnd > int64(len(cb)) {
+				ncb = ncb[:chunkWriteEnd]
+			} else {
+				ncb = ncb[:len(cb)]
+			}
+		}
+
+		h.dirty[cn] = ncb
+	}
+	return nil
 }
 
 // Serve receives and dispatches Requests from the kernel
@@ -89,6 +155,9 @@ func (sc *Server) Serve() error {
 		fuse.Debug(fmt.Sprintf("%+v", req))
 		// multiple goroutines seems to make Server take about 5x wall clock time
 		// to handle requests under load, as shown by TestFuseRead.
+		// jonallie points out, instantiating goroutines isn't free (not even close)
+		// plausibly toss these onto a pool as a cheap fix, consider one worker per
+		// open file handle as a more-intrusive but plausibly-faster change?
 		// go sc.serve(req)
 		sc.serve(req)
 	}
@@ -183,8 +252,11 @@ func (sc *Server) serve(req fuse.Request) {
 	case *fuse.WriteRequest:
 		sc.write(req)
 
-	// Ack that the kernel has forgotten the metadata about an inode
+	// Flush writes to the underlying storage layers
 	case *fuse.FlushRequest:
+		sc.hm.Lock()
+		defer sc.hm.Unlock()
+		sc.flush(req.Handle)
 		req.Respond()
 
 	// Ack release of the kernel's mapping an inode->fileId
@@ -392,7 +464,7 @@ func (sc *Server) open(req *fuse.OpenRequest) {
 func (sc *Server) allocHandle(inode fuse.NodeID, f *shade.File) uint64 {
 	var hID uint64
 	var found bool
-	h := handle{inode: inode, file: f}
+	h := handle{inode: inode, file: f, dirty: make(map[int64][]byte)}
 	sc.hm.Lock()
 	defer sc.hm.Unlock()
 	for i, ch := range sc.handles {
@@ -421,14 +493,12 @@ func (sc *Server) handleByID(id fuse.HandleID) (handle, error) {
 }
 
 // Acknowledge release (eg. close) of file handle by the kernel
-// TODO(asjoyner): flush any remaining dirty blocks?
 func (sc *Server) release(req *fuse.ReleaseRequest) {
 	sc.hm.Lock()
 	defer sc.hm.Unlock()
 	h := sc.handles[req.Handle]
-	if h.writer != nil {
-		h.writer.Close()
-	}
+	// TODO: Does Flush always get called directly?
+	//sc.flush(req.Handle)
 	h.inode = 0
 	req.Respond()
 }
@@ -445,7 +515,13 @@ func (sc *Server) create(req *fuse.CreateRequest) {
 	n := sc.tree.Create(fn)
 	inode := sc.inode.FromPath(fn)
 	// create handle
-	hID := sc.allocHandle(fuse.NodeID(inode), &shade.File{Filename: fn})
+	hID := sc.allocHandle(
+		fuse.NodeID(inode),
+		&shade.File{
+			Filename:  fn,
+			Chunksize: DefaultChunkSizeBytes,
+		},
+	)
 
 	// Respond to tell the fuse kernel module about the file
 	resp := fuse.CreateResponse{
@@ -616,32 +692,70 @@ func (sc *Server) rename(req *fuse.RenameRequest) {
 
 // Pass sequential writes on to the correct handle for uploading
 func (sc *Server) write(req *fuse.WriteRequest) {
-	// TODO(asjoyner): shadeify
-	req.RespondError(fuse.ENOSYS)
 	// TODO: if allow_other, require uid == invoking uid to allow writes
-	/*
-		h, err := sc.handleByID(req.Handle)
-		if err != nil {
-			fuse.Debug(fmt.Sprintf("inodeByNodeID(%v): %v", req.Handle, err))
-			req.RespondError(fuse.ESTALE)
-			return
+	h, err := sc.handleByID(req.Handle)
+	if err != nil {
+		fuse.Debug(fmt.Sprintf("handleByID(%v): %v", req.Handle, err))
+		req.RespondError(fuse.ESTALE)
+		return
+	}
+
+	// update chunks in handle
+	sc.hm.Lock()
+	defer sc.hm.Unlock()
+	if h.applyWrite(req.Data, req.Offset, sc.client); err != nil {
+		req.RespondError(fuse.EIO)
+		return
+	}
+	sc.handles[req.Handle] = h
+	req.Respond(&fuse.WriteResponse{Size: len(req.Data)})
+}
+
+// Write out the dirty chunks to the shade drive.Client
+// Nb: caller is responsible for holding sc.hm
+func (sc *Server) flush(hID fuse.HandleID) {
+	h := sc.handles[hID]
+	if h.file == nil {
+		return
+	}
+	// ensure h.file.Chunks is large enough
+	var lastDirtyChunk int64 = -1
+	for cn := range h.dirty {
+		if cn > lastDirtyChunk {
+			lastDirtyChunk = cn
 		}
-		if h.lastByte != req.Offset {
-			fuse.Debug(fmt.Sprintf("non-sequential write: got %v, expected %v", req.Offset, h.lastByte))
-			req.RespondError(fuse.EIO)
-			return
+	}
+	fuse.Debug(fmt.Sprintf("Chunks capacity before: %+v", cap(h.file.Chunks)))
+	if int64(cap(h.file.Chunks)) <= lastDirtyChunk {
+		nc := make([]shade.Chunk, lastDirtyChunk+1, lastDirtyChunk+1)
+		copy(nc, h.file.Chunks)
+		h.file.Chunks = nc
+	}
+	fuse.Debug(fmt.Sprintf("Chunks capacity: %+v", cap(h.file.Chunks)))
+	fuse.Debug(fmt.Sprintf("lastDirtyChunk: %+v", lastDirtyChunk))
+	for cn, dirtyChunk := range h.dirty {
+		sum := shade.Sum(dirtyChunk)
+		h.file.Chunks[cn].Sha256 = sum
+		for {
+			if sc.client.PutChunk(sum, dirtyChunk) != nil {
+				continue
+			}
+			break
 		}
-		n, err := h.writer.Write(req.Data)
-		if err != nil {
-			req.RespondError(fuse.EIO)
-			return
+		h.dirty = nil
+	}
+	jm, err := json.Marshal(h.file)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not marshal shade.File: %s\n", err)
+		os.Exit(1)
+	}
+	sum := shade.Sum(jm)
+	for {
+		if sc.client.PutFile(sum, jm) != nil {
+			continue
 		}
-		sc.hm.Lock()
-		h.lastByte += int64(n)
-		sc.handles[req.Handle] = h
-		sc.hm.Unlock()
-		req.Respond(&fuse.WriteResponse{n})
-	*/
+		break
+	}
 }
 
 // TreeDebug enables debug logging for operations done by the Tree.
