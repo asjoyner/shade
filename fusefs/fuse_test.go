@@ -403,22 +403,37 @@ func TestApplyWrite(t *testing.T) {
 		data   []byte
 		after  map[int64][]byte
 	}{
-		{
+		{ // test 0
 			map[int64]shade.Chunk{},
 			0,
 			[]byte("yep"),
 			map[int64][]byte{0: []byte("yep")},
 		},
-		{
+		{ // test 1
 			map[int64]shade.Chunk{
 				0: {Index: 0, Sha256: posStringSum},
-				1: {Index: 0, Sha256: posStringSum},
 			},
 			0,
 			[]byte("yep"),
 			map[int64][]byte{0: []byte("yep34567")},
 		},
-		{
+		{ // test 2, Example A
+			map[int64]shade.Chunk{
+				0: {Index: 0, Sha256: posStringSum},
+			},
+			0,
+			[]byte("onechunk"),
+			map[int64][]byte{0: []byte("onechunk")},
+		},
+		{ // test 3
+			map[int64]shade.Chunk{
+				0: {Index: 0, Sha256: posStringSum},
+			},
+			0,
+			[]byte("just1more"),
+			map[int64][]byte{0: []byte("just1mor"), 1: []byte("e")},
+		},
+		{ // test 4
 			map[int64]shade.Chunk{
 				0: {Index: 0, Sha256: posStringSum},
 				1: {Index: 0, Sha256: posStringSum},
@@ -427,7 +442,7 @@ func TestApplyWrite(t *testing.T) {
 			[]byte("straddle"),
 			map[int64][]byte{0: []byte("012strad"), 1: []byte("dle34567")},
 		},
-		{
+		{ // test 5
 			map[int64]shade.Chunk{
 				0: {Index: 0, Sha256: posStringSum},
 				1: {Index: 0, Sha256: posStringSum},
@@ -439,6 +454,7 @@ func TestApplyWrite(t *testing.T) {
 		},
 	}
 	for i, ts := range testSet {
+		//fmt.Printf("test %d\n", i)
 		h := handle{
 			file: &shade.File{
 				Chunksize: 8,
@@ -448,7 +464,7 @@ func TestApplyWrite(t *testing.T) {
 		}
 		h.applyWrite(ts.data, ts.offset, mc)
 		if len(h.dirty) != len(ts.after) {
-			t.Fatalf("%d: applyWrite(%s, %d..), wrong number of chunks, want: %d, got: %d", i, ts.data, ts.offset, len(ts.after), len(h.dirty))
+			t.Fatalf("test %d: applyWrite(%s, %d..), wrong number of chunks, want: %d, got: %d", i, ts.data, ts.offset, len(ts.after), len(h.dirty))
 		}
 		for i := 0; i < len(h.dirty); i++ {
 			i := int64(i)

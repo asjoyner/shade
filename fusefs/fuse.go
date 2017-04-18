@@ -84,7 +84,7 @@ func (h *handle) chunkBytes(chunkNum int64, client drive.Client) ([]byte, error)
 	}
 	cleanChunk, ok := h.chunks[chunkNum]
 	if !ok { // no chunk data at this offset (yet)
-		return make([]byte, 0, int64(h.file.Chunksize)), nil
+		return make([]byte, 0), nil
 	}
 	cb, err := client.GetChunk(cleanChunk.Sha256)
 	if err != nil {
@@ -102,14 +102,15 @@ func (h *handle) applyWrite(data []byte, offset int64, client drive.Client) erro
 	// determine which chunks need to be updated
 	chunkSize := int64(h.file.Chunksize)
 	writeSize := int64(len(data))
-	firstChunk := offset / chunkSize
 	eoWrite := offset + writeSize
-	lastChunk := eoWrite / chunkSize
-	dataPtr := 0
+	firstChunk := offset / chunkSize
+	lastChunk := (eoWrite - 1) / chunkSize
+
+	var dataPtr int64 // tracks bytes read from data into chunks
 	for cn := firstChunk; cn <= lastChunk; cn++ {
-		chunkStart := cn * chunkSize          // the position of the chunk in the file
-		chunkWriteEnd := eoWrite - chunkStart // the end of the write in this chunk
-		var chunkOffset int64                 // the start of the write inside this chunk
+		//fmt.Printf("working chunk %d\n", cn)
+		chunkStart := cn * chunkSize // the position of the chunk in the file
+		var chunkOffset int64        // the start of the write inside this chunk
 		if offset > chunkStart {
 			chunkOffset = offset - chunkStart
 		}
@@ -118,25 +119,30 @@ func (h *handle) applyWrite(data []byte, offset int64, client drive.Client) erro
 			return err
 		}
 
-		ncb := make([]byte, chunkSize)
-		copy(ncb, cb[:chunkOffset])
-		n := copy(ncb[chunkOffset:], data[dataPtr:])
-		dataPtr += n
-		if int64(len(cb)) > chunkWriteEnd {
-			// if the write doesn't write past the end of the existing data, append
-			// the rest of the existing chunk.
-			copy(ncb[chunkWriteEnd:], cb[chunkWriteEnd:])
-		}
-		// truncate ncb at the chunkWriteEnd, or cb, which ever is greater
-		if cn == lastChunk && chunkWriteEnd < chunkSize {
-			if chunkWriteEnd > int64(len(cb)) {
-				ncb = ncb[:chunkWriteEnd]
-			} else {
-				ncb = ncb[:len(cb)]
-			}
+		//fmt.Printf("before copy: %q\n", cb)
+		n := copy(cb[chunkOffset:], data[dataPtr:])
+		//fmt.Printf("post copy: %q\n", cb)
+		dataPtr += int64(n)
+		// determine if we read all of the data, or filled the chunk
+		chunkRemainder := chunkSize - int64(len(cb))
+		dataRemainder := writeSize - dataPtr
+		var appendSize int64
+		//fmt.Printf("dataremaidner: %d chunkRemainder: %d\n", dataRemainder, chunkRemainder)
+		if dataRemainder > 0 && dataRemainder <= chunkRemainder {
+			appendSize = dataRemainder
+		} else if dataRemainder > 0 && dataRemainder > chunkRemainder {
+			appendSize = chunkRemainder
 		}
 
-		h.dirty[cn] = ncb
+		// extend cb if necessary
+		if appendSize > 0 {
+			//fmt.Printf("append[%d:%d] (%q)\n", dataPtr, appendSize, data)
+			cb = append(cb, data[dataPtr:dataPtr+appendSize]...)
+			dataPtr += appendSize
+		}
+		//fmt.Printf("post extend: %q\n", cb)
+
+		h.dirty[cn] = cb
 	}
 	return nil
 }

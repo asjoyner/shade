@@ -32,7 +32,7 @@ writeSize = the length of the write, in bytes
 
 chunkStart = the position of the chunk relative to the start of the file
 
-chunkWriteEnd = where the write ends, relative to the start of the chunk
+appendSize = how much of data to append to fill the current chunk
 
 chunkOffset = the position of the chunk, relative to start of the write
 
@@ -46,7 +46,7 @@ Example A
 
     C0.chunkStart = 0
     C0.chunkOffset = 0
-    C0.chunkWriteEnd = 7
+    C0.appendSize = 8
     C0.dataPtr = 0
 
 
@@ -57,12 +57,12 @@ Example B
 
     C0.chunkStart = 0
     C0.chunkOffset = 8
-    C0.chunkWriteEnd = 7
+    C0.appendSize = 0
     C0.dataPtr = 0
 
     C1.chunkStart = 8
     C1.chunkOffset = 8
-    C1.chunkWriteEnd = 8
+    C1.appendSize = 7
     C1.dataPtr = 5
 
 ----
@@ -74,12 +74,12 @@ Example C
 
     C0.chunkStart = 8
     C0.chunkOffset = 1
-    C0.chunkWriteEnd = 7
+    C0.appendSize = 0
     C0.dataPtr = 0
 
     C1.chunkStart = 16
     C1.chunkOffset = 0
-    C1.chunkWriteEnd = 6
+    C1.appendSize = 5
     C0.dataPtr = 7
 
 ----
@@ -91,22 +91,22 @@ Example D
 
     C0.chunkStart = 0
     C0.chunkOffset = 7
-    C0.chunkWriteEnd = 7
+    C0.appendSize = 0
     C0.dataPtr = 0
 
     C1.chunkStart = 8
     C1.chunkOffset = 0
-    C1.chunkWriteEnd = 7
+    C1.appendSize = 0
     C2.dataPtr = 1
 
     C2.chunkStart = 16
     C2.chunkOffset = 0
-    C2.chunkWriteEnd = 7
+    C2.appendSize = 2
     C2.dataPtr = 8
 
     C3.chunkStart = 24
     C3.chunkOffset = 0
-    C3.chunkWriteEnd = 7
+    C3.appendSize = 8
     C3.dataPtr = 16
 
 ----
