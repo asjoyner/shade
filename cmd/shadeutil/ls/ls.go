@@ -1,6 +1,7 @@
 package ls
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,8 +12,6 @@ import (
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/config"
-
-	"golang.org/x/net/context"
 
 	"github.com/google/subcommands"
 )
