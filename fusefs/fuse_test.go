@@ -34,7 +34,6 @@ func init() {
 // based on the Sum.  It uses PutChunk to put them into a memory client, and
 // mounts a fusefs on that memory client.  It then uses filepath.Walk to
 // iterate and validate the exposed filesystem.
-/*
 func TestFuseRead(t *testing.T) {
 	mountPoint, err := ioutil.TempDir("", "fusefsTest")
 	if err != nil {
@@ -135,7 +134,6 @@ func TestFuseRead(t *testing.T) {
 		}
 	}
 }
-*/
 
 // TestFuseRoundTrip creates an empty memory client, mounts a fusefs filesystem
 // against it, generates random test data, writes it to the filesystem, reads
