@@ -12,5 +12,5 @@ before_install:
   - sudo chown root:$USER /etc/fuse.conf
 
 script:
-  - go test -v ./drive/... ./config/... ./cmd/...
+  - go test -v ./drive/... ./config/... ./cmd/... ./fuse_fs/...
 
