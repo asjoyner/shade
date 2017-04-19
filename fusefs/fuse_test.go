@@ -48,8 +48,8 @@ func TestFuseRead(t *testing.T) {
 	}
 	defer tearDownFuse(t, mountPoint)
 
-	chunkSize := 100 * 256 // in bytes
-	nc := 50               // number of chunks
+	chunkSize := 8 * 256 // in bytes
+	nc := 50             // number of chunks
 
 	// Generate some random file contents
 	testChunks := make(map[string][]byte, nc)
