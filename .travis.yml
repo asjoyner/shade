@@ -12,5 +12,5 @@ before_install:
   - sudo chown root:$USER /etc/fuse.conf
 
 script:
-  - travis_wait 20 go test -v ./...;
+  - go test -v ./...
 
