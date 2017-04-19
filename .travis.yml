@@ -12,5 +12,5 @@ before_install:
   - sudo chown root:$USER /etc/fuse.conf
 
 script:
-  - go test -v -test.run 'Test(ApplyWrite|FuseRoundtrip)' ./drive/... ./config/... ./cmd/... ./fusefs/...
+  - go test -v -test.run 'TestApplyWrite' ./drive/... ./config/... ./cmd/... ./fusefs/...
 
