@@ -11,3 +11,6 @@ before_install:
   - sudo chmod 666 /dev/fuse
   - sudo chown root:$USER /etc/fuse.conf
 
+script:
+  - travis_wait 20 go test -v ./...;
+
