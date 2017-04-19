@@ -372,6 +372,11 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 
 func (sc *Server) read(req *fuse.ReadRequest) {
 	h, err := sc.handleByID(req.Handle)
+	if err != nil {
+		fuse.Debug(fmt.Sprintf("handleByID(%v): %v", req.Handle, err))
+		req.RespondError(fuse.ESTALE)
+		return
+	}
 	f := h.file
 	fuse.Debug(fmt.Sprintf("Read(name: %s, offset: %d, size: %d)", f.Filename, req.Offset, req.Size))
 	chunkSize := int64(f.Chunksize)
