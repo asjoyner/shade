@@ -12,5 +12,5 @@ before_install:
   - sudo chown root:$USER /etc/fuse.conf
 
 script:
-  - go test -fuse.debug -v -test.run 'TestFuseRoundtrip' ./fusefs/...
+  - go test -v -test.run 'TestFuseRoundtrip' ./fusefs/... -fuse.debug
 
