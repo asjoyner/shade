@@ -1,42 +1,146 @@
 package google
 
-import "github.com/asjoyner/shade/drive"
+import (
+	"bytes"
+	"encoding/hex"
+	"fmt"
+	"io/ioutil"
+	"sync"
+
+	gdrive "google.golang.org/api/drive/v3"
+
+	"github.com/asjoyner/shade/drive"
+
+	"golang.org/x/net/context"
+)
+
+// listFilesQuery is a Google Drive API query string which will return all
+// shade metadata files.
+const listFilesQuery = "appProperties has { key='shadeType' and value='metadata' }"
 
 func init() {
 	drive.RegisterProvider("google", NewClient)
 }
 
 // NewClient returns a new Drive client.
-// TODO(shanel): Should this just be New? or NewDrive?
 func NewClient(c drive.Config) (drive.Client, error) {
-	return &Drive{}, nil
+	client := getOAuthClient(c)
+	service, err := gdrive.New(client)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve Google Drive Client: %v", err)
+	}
+	return &Drive{
+		service: service,
+		config:  c,
+		files:   make(map[string]string),
+	}, nil
 }
 
 // Drive represents access to the Google Drive storage system.
 type Drive struct {
-	config drive.Config
+	service *gdrive.Service
+	config  drive.Config
+
+	mu    sync.RWMutex // protects following members
+	files map[string]string
 }
 
 // ListFiles retrieves all of the File objects known to the client, and returns
 // the corresponding sha256sum of the file object.  Those may be passed to
 // GetChunk() to retrieve the corresponding shade.File.
 func (s *Drive) ListFiles() ([][]byte, error) {
-	return nil, nil
+	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
+	r, err := s.service.Files.List().Context(ctx).Q(listFilesQuery).Fields("files(id, name)").Do()
+	if err != nil {
+		return nil, fmt.Errorf("couldn't retrieve files: %v", err)
+	}
+	s.mu.Lock()
+	for _, f := range r.Files {
+		// If decoding the name fails, skip the file.
+		if b, err := hex.DecodeString(f.Name); err == nil {
+			s.files[string(b)] = f.Id
+		}
+	}
+	s.mu.Unlock()
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	resp := make([][]byte, 0, len(s.files))
+	for sha256sum := range s.files {
+		resp = append(resp, []byte(sha256sum))
+	}
+	return resp, nil
 }
 
 // PutFile writes the metadata describing a new file.
-// f should be marshalled JSON, and may be encrypted.
-func (s *Drive) PutFile(sha256, f []byte) error {
+// content should be marshalled JSON, and may be encrypted.
+func (s *Drive) PutFile(sha256sum, content []byte) error {
+	f := &gdrive.File{
+		Name:          hex.EncodeToString(sha256sum),
+		AppProperties: map[string]string{"shadeType": "metadata"},
+	}
+
+	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
+	br := bytes.NewReader(content)
+	if _, err := s.service.Files.Create(f).Context(ctx).Media(br).Do(); err != nil {
+		return fmt.Errorf("couldn't create file: %v", err)
+	}
 	return nil
 }
 
 // GetChunk retrieves a chunk with a given SHA-256 sum
-func (s *Drive) GetChunk(sha256 []byte) ([]byte, error) {
-	return nil, nil
+func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
+	s.mu.RLock()
+	fileID, ok := s.files[string(sha256sum)]
+	s.mu.RUnlock()
+
+	filename := hex.EncodeToString(sha256sum)
+	if !ok {
+		ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
+		r, err := s.service.Files.List().Context(ctx).Q(fmt.Sprintf("name = '%s'", filename)).Fields("files(id, name)").Do()
+		if err != nil {
+			return nil, fmt.Errorf("couldn't get metadata for chunk %v: %v", filename, err)
+		}
+		if len(r.Files) != 0 {
+			return nil, fmt.Errorf("got non-unique chunk result for chunk %v", filename)
+		}
+		fileID = r.Files[0].Id
+	}
+
+	resp, err := s.service.Files.Get(fileID).Download()
+	if err != nil {
+		return nil, fmt.Errorf("couldn't download chunk %v: %v", filename, err)
+	}
+	defer resp.Body.Close()
+
+	chunk, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't read chunk %v: %v", filename, err)
+	}
+	return chunk, nil
 }
 
 // PutChunk writes a chunk and returns its SHA-256 sum
-func (s *Drive) PutChunk(sha256 []byte, chunk []byte) error {
+func (s *Drive) PutChunk(sha256sum, content []byte) error {
+	s.mu.RLock()
+	_, ok := s.files[string(sha256sum)]
+	s.mu.RUnlock()
+	if ok {
+		return nil // we know this chunk already exists
+	}
+	f := &gdrive.File{
+		Name:          hex.EncodeToString(sha256sum),
+		AppProperties: map[string]string{"shadeType": "chunk"},
+	}
+	if s.config.ChunkParentID != "" {
+		f.AppProperties["parents"] = s.config.ChunkParentID
+	}
+
+	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
+	br := bytes.NewReader(content)
+	if _, err := s.service.Files.Create(f).Context(ctx).Media(br).Do(); err != nil {
+		return fmt.Errorf("couldn't create file: %v", err)
+	}
 	return nil
 }
 
