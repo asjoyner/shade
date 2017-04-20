@@ -500,6 +500,9 @@ func (sc *Server) handleByID(id fuse.HandleID) (handle, error) {
 	if int(id) >= len(sc.handles) {
 		return handle{}, fmt.Errorf("handle %v has not been allocated", id)
 	}
+	if sc.handles[id] == nil {
+		return handle{}, fmt.Errorf("handle %v has been freed", id)
+	}
 	return sc.handles[id], nil
 }
 
