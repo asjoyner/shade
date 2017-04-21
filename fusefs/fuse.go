@@ -411,11 +411,8 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 		return
 	}
 	high := low + int64(req.Size)
-	if high > dsize { // high is zero-ordered
+	if high > dsize {
 		high = dsize
-		//fuse.Debug(fmt.Sprintf("read-past-eof chunk calculation error (high:%d, dsize:%d): filename: %s, offset:%d, size:%d, filesize:%d", high, dsize, f.Filename, req.Offset, req.Size, f.Filesize))
-		//req.RespondError(fuse.EIO)
-		//return
 	}
 	d := allTheBytes[low:high]
 	resp := &fuse.ReadResponse{Data: d}
@@ -811,10 +808,10 @@ func chunksForRead(f *shade.File, offset, size int64) ([][]byte, error) {
 	firstChunk := offset / chunkSize
 	lastChunk := ((offset + size - 1) / chunkSize) + 1
 	if firstChunk > int64(len(f.Chunks)) {
-		return nil, fmt.Errorf("no chunk for read at: %d", firstChunk)
+		return nil, fmt.Errorf("no first chunk %d for read at %d (%d bytes) in %v", firstChunk, offset, size, f)
 	}
 	if lastChunk > int64(len(f.Chunks)) {
-		return nil, fmt.Errorf("no chunk for read at: %d", lastChunk)
+		return nil, fmt.Errorf("no last chunk %d for read at %d (%d bytes) in %v", lastChunk, offset, size, f)
 	}
 	// extract the Sha256 sums from the chunk objects
 	var chunks [][]byte
