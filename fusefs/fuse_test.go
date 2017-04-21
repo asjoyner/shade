@@ -78,12 +78,13 @@ func TestFuseRead(t *testing.T) {
 		filename := pathFromStringSum(chunkStringSum)
 		file := shade.File{
 			Filename: filename,
-			Filesize: int64(len(chunkStringSum)),
+			Filesize: int64(chunkSize),
 			Chunks: []shade.Chunk{{
 				Index:  0,
 				Sha256: []byte(chunkStringSum),
 			}},
-			Chunksize: chunkSize,
+			Chunksize:     chunkSize,
+			LastChunksize: chunkSize,
 		}
 		fj, err := file.ToJSON()
 		if err != nil {
@@ -103,7 +104,7 @@ func TestFuseRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	if nf := len(files); nf != nc {
-		t.Fatalf("incomplete file set in client, want: %d, got %d", nc, nf)
+		t.Fatalf("incomplete file set in client, want: %d, got: %d", nc, nf)
 	}
 	t.Logf("There are %d files known to the drive.Client.", nc)
 
@@ -126,7 +127,7 @@ func TestFuseRead(t *testing.T) {
 	}
 
 	if ns := len(seen); ns != nc {
-		t.Errorf("incomplete file set in fuse, want: %d, got %d", nc, ns)
+		t.Errorf("incomplete file set in fuse, want: %d, got: %d", nc, ns)
 		for chunk := range testChunks {
 			if !seen[chunk] {
 				t.Errorf("missing file: %x", chunk)
@@ -198,7 +199,7 @@ func TestFuseRoundtrip(t *testing.T) {
 	}
 
 	if ns := len(seen); ns != nf {
-		t.Errorf("incomplete file set in fuse, want: %d, got %d", nf, ns)
+		t.Errorf("incomplete file set in fuse, want: %d, got: %d", nf, ns)
 		for chunk := range testFiles {
 			if !seen[chunk] {
 				t.Errorf("missing file: %x", chunk)
@@ -290,8 +291,8 @@ func checkPath(t *testing.T, testChunks map[string][]byte, seen map[string]bool,
 			t.Errorf("could not hex decode filename in Fuse FS: %s: %s", filename, err)
 			return nil
 		}
-		if bytes.Equal(contents, testChunks[string(chs)]) {
-			t.Errorf("contents of %s did not match, want: %s, got %s", filename, testChunks[filename], contents)
+		if !bytes.Equal(contents, testChunks[string(chs)]) {
+			t.Errorf("contents of %s did not match, want: %x, got: %x", filename, testChunks[string(chs)], contents)
 			return nil
 		}
 		if seen[string(chs)] {

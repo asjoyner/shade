@@ -20,7 +20,7 @@ type Node struct {
 	// Filename is the complete path to a node, with no leading or trailing
 	// slash.
 	Filename     string
-	Filesize     uint64 // in bytes
+	Filesize     int64 // in bytes
 	ModifiedTime time.Time
 	Sha256sum    []byte // the sha of the full shade.File
 	// Children is a map indicating the presence of a node immediately
@@ -160,6 +160,13 @@ func (t *Tree) Create(filename string) Node {
 	return node
 }
 
+// Update accepts a replacement shade.File node
+func (t *Tree) Update(n Node) {
+	t.nm.Lock()
+	defer t.nm.Unlock()
+	t.nodes[n.Filename] = n
+}
+
 // Refresh updates the cached view of the Tree by calling ListFiles and
 // processing the result.
 func (t *Tree) Refresh() error {
@@ -193,7 +200,7 @@ func (t *Tree) Refresh() error {
 		}
 		node := Node{
 			Filename:     file.Filename,
-			Filesize:     uint64(file.Filesize),
+			Filesize:     file.Filesize,
 			ModifiedTime: file.ModifiedTime,
 			Sha256sum:    sha256sum,
 			Children:     nil,

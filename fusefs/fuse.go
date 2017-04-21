@@ -372,7 +372,7 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 
 func (sc *Server) read(req *fuse.ReadRequest) {
 	h, err := sc.handleByID(req.Handle)
-	if err != nil {
+	if err != nil || h.file == nil {
 		fuse.Debug(fmt.Sprintf("handleByID(%v): %v", req.Handle, err))
 		req.RespondError(fuse.ESTALE)
 		return
@@ -411,11 +411,11 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 		return
 	}
 	high := low + int64(req.Size)
-	if high > dsize {
+	if high > dsize { // high is zero-ordered
 		high = dsize
-		fuse.Debug(fmt.Sprintf("too-low chunk calculation error (low:%d, dsize:%d): filename: %s, offset:%d, size:%d, filesize:%d", low, dsize, f.Filename, req.Offset, req.Size, f.Filesize))
-		req.RespondError(fuse.EIO)
-		return
+		//fuse.Debug(fmt.Sprintf("read-past-eof chunk calculation error (high:%d, dsize:%d): filename: %s, offset:%d, size:%d, filesize:%d", high, dsize, f.Filename, req.Offset, req.Size, f.Filesize))
+		//req.RespondError(fuse.EIO)
+		//return
 	}
 	d := allTheBytes[low:high]
 	resp := &fuse.ReadResponse{Data: d}
@@ -437,8 +437,8 @@ func (sc *Server) attrFromNode(node Node, i uint64) fuse.Attr {
 		attr.Nlink = uint32(len(node.Children) + 2)
 		return attr
 	}
-	blocks := node.Filesize / uint64(blockSize)
-	if r := node.Filesize % uint64(blockSize); r > 0 {
+	blocks := node.Filesize / int64(blockSize)
+	if r := node.Filesize % int64(blockSize); r > 0 {
 		blocks++
 	}
 	attr.Atime = node.ModifiedTime
@@ -464,6 +464,11 @@ func (sc *Server) open(req *fuse.OpenRequest) {
 
 	// get the shade.File for the node, stuff it in the Handle
 	f, err := sc.tree.FileByNode(n)
+	if err != nil && !req.Dir {
+		fuse.Debug(fmt.Sprintf("FileByNode(%v): %s", n, err))
+		req.RespondError(fuse.ENOENT)
+		return
+	}
 	hID := sc.allocHandle(req.Header.Node, f)
 
 	resp := fuse.OpenResponse{Handle: fuse.HandleID(hID)}
@@ -509,7 +514,7 @@ func (sc *Server) release(req *fuse.ReleaseRequest) {
 	defer sc.hm.Unlock()
 	h := sc.handles[req.Handle]
 	// TODO: Does Flush always get called directly?
-	//sc.flush(req.Handle)
+	sc.flush(req.Handle)
 	h.inode = 0
 	req.Respond()
 }
@@ -726,7 +731,7 @@ func (sc *Server) write(req *fuse.WriteRequest) {
 // Nb: caller is responsible for holding sc.hm
 func (sc *Server) flush(hID fuse.HandleID) {
 	h := sc.handles[hID]
-	if h.file == nil {
+	if h.file == nil || len(h.dirty) == 0 {
 		return
 	}
 	// ensure h.file.Chunks is large enough
@@ -736,25 +741,33 @@ func (sc *Server) flush(hID fuse.HandleID) {
 			lastDirtyChunk = cn
 		}
 	}
-	fuse.Debug(fmt.Sprintf("Chunks capacity before: %+v", cap(h.file.Chunks)))
-	if int64(cap(h.file.Chunks)) <= lastDirtyChunk {
+	fuse.Debug(fmt.Sprintf("Chunks length before: %+v", len(h.file.Chunks)))
+	if int64(len(h.file.Chunks)) <= lastDirtyChunk {
 		nc := make([]shade.Chunk, lastDirtyChunk+1, lastDirtyChunk+1)
 		copy(nc, h.file.Chunks)
 		h.file.Chunks = nc
 	}
-	fuse.Debug(fmt.Sprintf("Chunks capacity: %+v", cap(h.file.Chunks)))
+	fuse.Debug(fmt.Sprintf("Chunks length: %+v", len(h.file.Chunks)))
 	fuse.Debug(fmt.Sprintf("lastDirtyChunk: %+v", lastDirtyChunk))
 	for cn, dirtyChunk := range h.dirty {
 		sum := shade.Sum(dirtyChunk)
 		h.file.Chunks[cn].Sha256 = sum
+		if cn+1 == int64(len(h.file.Chunks)) {
+			h.file.LastChunksize = len(dirtyChunk)
+		}
 		for {
-			if sc.client.PutChunk(sum, dirtyChunk) != nil {
+			err := sc.client.PutChunk(sum, dirtyChunk)
+			if err != nil {
+				fuse.Debug(fmt.Sprintf("error storing chunk with sum: %x", sum))
 				continue
 			}
+			fuse.Debug(fmt.Sprintf("stored chunk with sum: %x", sum))
 			break
 		}
-		h.dirty = nil
 	}
+	h.dirty = nil
+	h.file.ModifiedTime = time.Now()
+	h.file.UpdateFilesize()
 	jm, err := json.Marshal(h.file)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not marshal shade.File: %s\n", err)
@@ -762,11 +775,27 @@ func (sc *Server) flush(hID fuse.HandleID) {
 	}
 	sum := shade.Sum(jm)
 	for {
-		if sc.client.PutFile(sum, jm) != nil {
+		err := sc.client.PutFile(sum, jm)
+		if err != nil {
+			fuse.Debug(fmt.Sprintf("error storing file with sum: %x", sum))
 			continue
 		}
+		fuse.Debug(fmt.Sprintf("stored file %s with sum: %x", h.file.Filename, sum))
 		break
 	}
+
+	// Update sc.tree's understanding of the Node
+	n, err := sc.tree.NodeByPath(h.file.Filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not find existing file being flushed: %s\n", err)
+	}
+	n.Filesize = h.file.Filesize
+	n.ModifiedTime = h.file.ModifiedTime
+	n.Sha256sum = sum
+	sc.tree.Update(n)
+
+	// Update the handle
+	sc.handles[hID] = h
 }
 
 // TreeDebug enables debug logging for operations done by the Tree.
