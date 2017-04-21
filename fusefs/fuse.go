@@ -380,7 +380,7 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 	f := h.file
 	fuse.Debug(fmt.Sprintf("Read(name: %s, offset: %d, size: %d)", f.Filename, req.Offset, req.Size))
 	chunkSize := int64(f.Chunksize)
-	chunkSums, err := chunksForRead(f, req.Offset, chunkSize)
+	chunkSums, err := chunksForRead(f, req.Offset, int64(req.Size))
 	if err != nil {
 		fuse.Debug(fmt.Sprintf("chunksForRead(): %s", err))
 		req.RespondError(fuse.EIO)
