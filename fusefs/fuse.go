@@ -807,16 +807,17 @@ func chunksForRead(f *shade.File, offset, size int64) ([][]byte, error) {
 	chunkSize := int64(f.Chunksize)
 	firstChunk := offset / chunkSize
 	lastChunk := ((offset + size - 1) / chunkSize) + 1
-	if firstChunk > int64(len(f.Chunks)) {
+	if firstChunk > int64(len(f.Chunks)-1) {
 		return nil, fmt.Errorf("no first chunk %d for read at %d (%d bytes) in %v", firstChunk, offset, size, f)
-	}
-	if lastChunk > int64(len(f.Chunks)) {
-		return nil, fmt.Errorf("no last chunk %d for read at %d (%d bytes) in %v", lastChunk, offset, size, f)
 	}
 	// extract the Sha256 sums from the chunk objects
 	var chunks [][]byte
-	for _, c := range f.Chunks[firstChunk:lastChunk] {
-		chunks = append(chunks, c.Sha256)
+	for i := firstChunk; i < lastChunk; i++ {
+		if i > int64(len(f.Chunks)-1) {
+			fuse.Debug(fmt.Sprintf("no chunk %d for read at %d (%d bytes) in %v", lastChunk, offset, size, f))
+			continue
+		}
+		chunks = append(chunks, f.Chunks[i].Sha256)
 	}
 	return chunks, nil
 }
