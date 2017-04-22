@@ -154,10 +154,11 @@ func TestFuseRoundtrip(t *testing.T) {
 
 	maxFileSizeBytes := int64(DefaultChunkSizeBytes * 3)
 	nf := 10 // number of files
-	fmt.Printf("DefaultChunkSizeBytes: %d\n", DefaultChunkSizeBytes)
-	fmt.Printf("maxFileSizeBytes: %d\n", maxFileSizeBytes)
+	t.Logf("DefaultChunkSizeBytes: %d\n", DefaultChunkSizeBytes)
+	t.Logf("maxFileSizeBytes: %d\n", maxFileSizeBytes)
 
 	// Generate some random file contents
+	t.Logf("Generating Random test data...\n")
 	testFiles := make(map[string][]byte, nf)
 	for i := 0; i < nf; i++ {
 		fileSize, err := rand.Int(rand.Reader, big.NewInt(maxFileSizeBytes))
@@ -177,11 +178,13 @@ func TestFuseRoundtrip(t *testing.T) {
 		if err := os.MkdirAll(path.Dir(filename), 0700); err != nil {
 			t.Fatalf(err.Error())
 		}
-		fmt.Printf("Writing %d bytes to %s\n", len(chunk), filename)
-		time.Sleep(3 * time.Second)
+		t.Logf("Writing %d bytes to %s\n", len(chunk), filename)
+		start := time.Now()
 		if err := ioutil.WriteFile(filename, chunk, 0400); err != nil {
 			t.Fatalf(err.Error())
 		}
+		elapsed := time.Since(start)
+		t.Logf("Took %s at %0.2fMB/s.\n", elapsed, float64(len(chunk))/1e6/elapsed.Seconds())
 	}
 
 	// Validate all the files have the right contents
@@ -193,7 +196,7 @@ func TestFuseRoundtrip(t *testing.T) {
 		return nil
 	}
 
-	fmt.Printf("Attempting to walk the filesystem.\n")
+	t.Logf("Attempting to walk the filesystem.\n")
 	if err := filepath.Walk(mountPoint, visit); err != nil {
 		t.Fatalf("filepath.Walk() returned %v", err)
 	}
@@ -206,6 +209,19 @@ func TestFuseRoundtrip(t *testing.T) {
 			}
 		}
 	}
+
+	// Delete all the test files, ensure they disappear.
+	for stringSum := range testFiles {
+		filename := path.Join(mountPoint, pathFromStringSum(stringSum))
+		t.Logf("Removing %s\n", filename)
+		if err := os.Remove(filename); err != nil {
+			t.Errorf(err.Error())
+		}
+		if _, err := ioutil.ReadFile(filename); err == nil {
+			t.Errorf("File still existed after delete: %s", filename)
+		}
+	}
+
 }
 
 // setup returns the absolute path to a mountpoint for a fuse FS, and the

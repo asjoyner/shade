@@ -22,7 +22,10 @@ type Node struct {
 	Filename     string
 	Filesize     int64 // in bytes
 	ModifiedTime time.Time
-	Sha256sum    []byte // the sha of the full shade.File
+	// Deleted indicates the file was Deleted at ModifiedTime.  NodeByPath
+	// responds exactly as if the node did not exist.
+	Deleted   bool
+	Sha256sum []byte // the sha of the full shade.File
 	// Children is a map indicating the presence of a node immediately
 	// below the current node in the tree.  The key is only the name of that
 	// node, a relative path, not fully qualified.
@@ -80,14 +83,15 @@ func (t *Tree) NodeByPath(p string) (Node, error) {
 	p = strings.TrimPrefix(p, "/")
 	t.nm.RLock()
 	defer t.nm.RUnlock()
-	if n, ok := t.nodes[p]; ok {
-		return n, nil
+	n, ok := t.nodes[p]
+	if !ok || n.Deleted {
+		t.log("known nodes:\n")
+		for _, n := range t.nodes {
+			t.log(fmt.Sprintf("%+v\n", n))
+		}
+		return Node{}, fmt.Errorf("no such node: %q", p)
 	}
-	t.log("known nodes:\n")
-	for _, n := range t.nodes {
-		t.log(fmt.Sprintf("%+v\n", n))
-	}
-	return Node{}, fmt.Errorf("no such node: %q", p)
+	return n, nil
 }
 
 func unmarshalChunk(fj, sha []byte) (*shade.File, error) {
@@ -164,6 +168,15 @@ func (t *Tree) Create(filename string) Node {
 func (t *Tree) Update(n Node) {
 	t.nm.Lock()
 	defer t.nm.Unlock()
+	on, ok := t.nodes[n.Filename]
+	if !ok {
+		t.log(fmt.Sprintf("Attempt to update a non-existent node: %+v", n))
+		return
+	}
+	if on.ModifiedTime.After(n.ModifiedTime) {
+		t.log(fmt.Sprintf("Update mtime (%s) older than current Node (%s)", n.ModifiedTime, on.ModifiedTime))
+		return
+	}
 	t.nodes[n.Filename] = n
 }
 
@@ -202,6 +215,7 @@ func (t *Tree) Refresh() error {
 			Filename:     file.Filename,
 			Filesize:     file.Filesize,
 			ModifiedTime: file.ModifiedTime,
+			Deleted:      file.Deleted,
 			Sha256sum:    sha256sum,
 			Children:     nil,
 		}

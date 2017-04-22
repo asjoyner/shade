@@ -588,35 +588,53 @@ func (sc *Server) mkdir(req *fuse.MkdirRequest) {
 }
 
 // Removes the inode described by req.Header.Node (doubles as rmdir)
-// Nota bene: there is no check preventing the removal of a directory which
-// contains files.
+// This is implemented as publishing a file noted as "deleted" with a higher
+// ModifiedTime.
 func (sc *Server) remove(req *fuse.RemoveRequest) {
-	// TODO(asjoyner): shadeify
-	req.RespondError(fuse.ENOSYS)
 	// TODO: if allow_other, require uid == invoking uid to allow writes
-	// TODO: consider disallowing deletion of directories with contents.. but what error?
-	/*
-		pInode := uint64(req.Header.Node)
-		parent, err := sc.db.FileByInode(pInode)
-		if err != nil {
-			debug.Printf("failed to get parent file: %v", err)
-			req.RespondError(fuse.EIO)
-			return
-		}
-		for _, cInode := range parent.Children {
-			child, err := sc.db.FileByInode(cInode)
-			if err != nil {
-				debug.Printf("failed to get child file: %v", err)
-			}
-			if child.Title == req.Name {
-				sc.service.Files.Delete(child.Id).Do()
-				sc.db.RemoveFileById(child.Id, nil)
-				req.Respond()
-				return
-			}
-		}
+	if req.Dir {
+		// TODO: implement removal of directories, (they're synthetic, so it's just
+		// cosmetic, so I'm being lazy and putting it off).
+		req.RespondError(fuse.ENOSYS)
+	}
+	pn, err := sc.nodeByID(req.Header.Node) // lookup parent dir inode
+	if err != nil {
+		fuse.Debug(fmt.Sprintf("sc.NodeById(%d): %s", req.Header.Node, err))
 		req.RespondError(fuse.ENOENT)
-	*/
+		return
+	}
+	filename := strings.TrimPrefix(path.Join(pn.Filename, req.Name), "/")
+	// create deleted File
+	f := &shade.File{
+		Filename:     filename,
+		Chunksize:    DefaultChunkSizeBytes,
+		ModifiedTime: time.Now(),
+		Deleted:      true,
+	}
+	// publish deleted File
+	jm, err := json.Marshal(f)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not marshal shade.File: %s\n", err)
+		os.Exit(1)
+	}
+	sum := shade.Sum(jm)
+	for {
+		err := sc.client.PutFile(sum, jm)
+		if err != nil {
+			fuse.Debug(fmt.Sprintf("error storing file %s with sum: %x", filename, sum))
+			continue
+		}
+		fuse.Debug(fmt.Sprintf("stored file %s with sum: %x", filename, sum))
+		break
+	}
+	// remove Node
+	sc.tree.Update(Node{
+		Filename:     f.Filename,
+		ModifiedTime: f.ModifiedTime,
+		Deleted:      true,
+		Sha256sum:    []byte("deleted"),
+	})
+	req.Respond()
 }
 
 // rename renames a file or directory, optionally reparenting it
@@ -774,7 +792,7 @@ func (sc *Server) flush(hID fuse.HandleID) {
 	for {
 		err := sc.client.PutFile(sum, jm)
 		if err != nil {
-			fuse.Debug(fmt.Sprintf("error storing file with sum: %x", sum))
+			fuse.Debug(fmt.Sprintf("error storing file %s with sum: %x", h.file.Filename, sum))
 			continue
 		}
 		fuse.Debug(fmt.Sprintf("stored file %s with sum: %x", h.file.Filename, sum))

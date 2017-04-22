@@ -27,6 +27,9 @@ type File struct {
 	// explicity avoids the need to fetch the last chunk to update the Filesize.
 	LastChunksize int
 
+	// Deleted indicates all previous versions of this file should be suppressed.
+	Deleted bool
+
 	// AesKey is a 256 bit key used to encrypt the Chunks with AES-GCM.  If no
 	// key is provided, the blocks are not encrypted.  The GCM nonce is stored at
 	// the front of the encrypted Chunk using gcm.Seal(); use gcm.Open() to
