@@ -153,7 +153,7 @@ func TestFuseRoundtrip(t *testing.T) {
 	defer tearDownFuse(t, mountPoint)
 
 	maxFileSizeBytes := int64(DefaultChunkSizeBytes * 3)
-	nf := 10 // number of files
+	nf := 20 // number of files
 	t.Logf("DefaultChunkSizeBytes: %d\n", DefaultChunkSizeBytes)
 	t.Logf("maxFileSizeBytes: %d\n", maxFileSizeBytes)
 

@@ -597,13 +597,13 @@ func (sc *Server) remove(req *fuse.RemoveRequest) {
 		// cosmetic, so I'm being lazy and putting it off).
 		req.RespondError(fuse.ENOSYS)
 	}
-	pn, err := sc.nodeByID(req.Header.Node) // lookup parent dir inode
+	parentdir, err := sc.inode.ToPath(uint64(req.Header.Node))
 	if err != nil {
 		fuse.Debug(fmt.Sprintf("sc.NodeById(%d): %s", req.Header.Node, err))
 		req.RespondError(fuse.ENOENT)
 		return
 	}
-	filename := strings.TrimPrefix(path.Join(pn.Filename, req.Name), "/")
+	filename := strings.TrimPrefix(path.Join(parentdir, req.Name), "/")
 	// create deleted File
 	f := &shade.File{
 		Filename:     filename,
