@@ -628,6 +628,7 @@ func (sc *Server) remove(req *fuse.RemoveRequest) {
 		break
 	}
 	// remove Node
+	fuse.Debug(fmt.Sprintf("sc.tree.Update(..%s..)", f.Filename))
 	sc.tree.Update(Node{
 		Filename:     f.Filename,
 		ModifiedTime: f.ModifiedTime,
