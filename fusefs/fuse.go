@@ -205,7 +205,6 @@ func (sc *Server) serve(req fuse.Request) {
 
 	// Ack that the kernel has forgotten the metadata about an inode
 	case *fuse.ForgetRequest:
-		sc.inode.Release(req.N)
 		req.Respond()
 
 	// Allocate a kernel file handle, return it
