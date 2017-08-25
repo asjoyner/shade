@@ -178,6 +178,16 @@ func (t *Tree) Update(n Node) {
 		return
 	}
 	t.nodes[n.Filename] = n
+	if n.Deleted {
+		dir, f := path.Split(n.Filename)
+		dir = strings.TrimSuffix(dir, "/")
+		parent, ok := t.nodes[dir]
+		if !ok {
+			t.log(fmt.Sprintf("Updated node without a parent: %+v", n))
+			return
+		}
+		delete(parent.Children, f)
+	}
 }
 
 // Refresh updates the cached view of the Tree by calling ListFiles and
