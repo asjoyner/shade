@@ -221,7 +221,44 @@ func TestFuseRoundtrip(t *testing.T) {
 			t.Errorf("File still existed after delete: %s", filename)
 		}
 	}
+}
 
+func TestFuseDirs(t *testing.T) {
+	mountPoint, err := ioutil.TempDir("", "fusefsTest")
+	if err != nil {
+		t.Fatalf("could not acquire TempDir: %s", err)
+	}
+	defer tearDownDir(mountPoint)
+
+	fmt.Printf("Mounting fuse filesystem at: %s\n", mountPoint)
+	if _, _, err := setupFuse(t, mountPoint); err != nil {
+		t.Fatalf("could not mount fuse: %s", err)
+	}
+	defer tearDownFuse(t, mountPoint)
+
+	testDir := path.Join(mountPoint, "hello")
+	testbottom := path.Join(testDir, "world/a/b/c/d/e/f/g/h")
+	if err := os.MkdirAll(testbottom, 0777); err != nil {
+		t.Fatalf("could not create test directory: %s", err)
+	}
+
+	if err := os.RemoveAll(testDir); err != nil {
+		t.Fatalf("could not remove test directory: %s", err)
+	}
+
+	fh, err := os.Open(mountPoint)
+	if err != nil {
+		t.Fatalf("could not read open test directory: %s", err)
+	}
+	defer fh.Close()
+
+	leftovers, err := fh.Readdir(0)
+	if err != nil {
+		t.Fatalf("could not read empty test directory: %s", err)
+	}
+	if len(leftovers) != 0 {
+		t.Fatalf("mountPoint is not empty: %+v", leftovers)
+	}
 }
 
 // setup returns the absolute path to a mountpoint for a fuse FS, and the

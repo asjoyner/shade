@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"bazil.org/fuse"
@@ -591,11 +592,6 @@ func (sc *Server) mkdir(req *fuse.MkdirRequest) {
 // ModifiedTime.
 func (sc *Server) remove(req *fuse.RemoveRequest) {
 	// TODO: if allow_other, require uid == invoking uid to allow writes
-	if req.Dir {
-		// TODO: implement removal of directories, (they're synthetic, so it's just
-		// cosmetic, so I'm being lazy and putting it off).
-		req.RespondError(fuse.ENOSYS)
-	}
 	parentdir, err := sc.inode.ToPath(uint64(req.Header.Node))
 	if err != nil {
 		fuse.Debug(fmt.Sprintf("sc.NodeById(%d): %s", req.Header.Node, err))
@@ -603,37 +599,52 @@ func (sc *Server) remove(req *fuse.RemoveRequest) {
 		return
 	}
 	filename := strings.TrimPrefix(path.Join(parentdir, req.Name), "/")
-	// create deleted File
+	// create Deleted File
 	f := &shade.File{
 		Filename:     filename,
 		Chunksize:    DefaultChunkSizeBytes,
 		ModifiedTime: time.Now(),
 		Deleted:      true,
 	}
-	// publish deleted File
-	jm, err := json.Marshal(f)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "could not marshal shade.File: %s\n", err)
-		os.Exit(1)
-	}
-	sum := shade.Sum(jm)
-	for {
-		err := sc.client.PutFile(sum, jm)
-		if err != nil {
-			fuse.Debug(fmt.Sprintf("error storing file %s with sum: %x", filename, sum))
-			continue
-		}
-		fuse.Debug(fmt.Sprintf("stored file %s with sum: %x", filename, sum))
-		break
-	}
-	// remove Node
-	fuse.Debug(fmt.Sprintf("sc.tree.Update(..%s..)", f.Filename))
-	sc.tree.Update(Node{
+	node := Node{
 		Filename:     f.Filename,
 		ModifiedTime: f.ModifiedTime,
 		Deleted:      true,
 		Sha256sum:    []byte("deleted"),
-	})
+	}
+	if req.Dir {
+		// ensure the are no children of this node
+		node, err := sc.tree.NodeByPath(filename)
+		if err != nil {
+			fuse.Debug(fmt.Sprintf("sc.NodeById(%d): %s", req.Header.Node, err))
+			req.RespondError(fuse.ENOENT)
+		}
+		if len(node.Children) == 0 {
+			fuse.Debug(fmt.Sprintf("sc.NodeById(%d): %s", req.Header.Node, err))
+			req.RespondError(syscall.ENOTEMPTY)
+		}
+		node.Sha256sum = nil
+	} else {
+		// publish Deleted File
+		jm, err := json.Marshal(f)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "could not marshal shade.File: %s\n", err)
+			os.Exit(1)
+		}
+		sum := shade.Sum(jm)
+		for {
+			err := sc.client.PutFile(sum, jm)
+			if err != nil {
+				fuse.Debug(fmt.Sprintf("error storing file %s with sum: %x", filename, sum))
+				continue
+			}
+			fuse.Debug(fmt.Sprintf("stored file %s with sum: %x", filename, sum))
+			break
+		}
+	}
+	// remove Node
+	fuse.Debug(fmt.Sprintf("sc.tree.Update(..%s..)", f.Filename))
+	sc.tree.Update(node)
 	req.Respond()
 }
 
