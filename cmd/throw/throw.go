@@ -75,6 +75,7 @@ func main() {
 		// truncate the chunkbytes array on the last read
 		if len < *chunksize {
 			chunkbytes = chunkbytes[:len]
+			manifest.LastChunksize = len
 		}
 
 		// TODO(asjoyner): optionally, encrypt bytes

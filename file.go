@@ -20,8 +20,15 @@ type File struct {
 	// Chunks represets an ordered list of the bytes in the file.
 	Chunks []Chunk
 
-	// Chunksize is the size of each plaintext Chunk, in bytes.
+	// Chunksize is the maximum size of each plaintext Chunk, in bytes.
 	Chunksize int
+
+	// LastChunksize is the size of the last chunk in the File.  Storing this
+	// explicity avoids the need to fetch the last chunk to update the Filesize.
+	LastChunksize int
+
+	// Deleted indicates all previous versions of this file should be suppressed.
+	Deleted bool
 
 	// AesKey is a 256 bit key used to encrypt the Chunks with AES-GCM.  If no
 	// key is provided, the blocks are not encrypted.  The GCM nonce is stored at
@@ -72,6 +79,13 @@ func (f *File) FromJSON(fj []byte) error {
 		return fmt.Errorf("failed to unmarshal sha256sum %x: %s", SumString(fj), err)
 	}
 	return nil
+}
+
+// UpdateFilesize calculates the size of the assocaited Chunks and sets the
+// Filesize member of the struct.
+func (f *File) UpdateFilesize() {
+	f.Filesize = int64((len(f.Chunks) - 1) * f.Chunksize)
+	f.Filesize += int64(f.LastChunksize)
 }
 
 func (c *Chunk) String() string {

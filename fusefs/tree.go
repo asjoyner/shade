@@ -14,14 +14,18 @@ import (
 	"github.com/asjoyner/shade/drive"
 )
 
-// Node is a very compact representation of a file
+// Node is a very compact representation of a shade.File.  It can also be used
+// to represent a sythetic directory, for tree traversal.
 type Node struct {
 	// Filename is the complete path to a node, with no leading or trailing
 	// slash.
 	Filename     string
-	Filesize     uint64 // in bytes
+	Filesize     int64 // in bytes
 	ModifiedTime time.Time
-	Sha256sum    []byte // the sha of the full shade.File
+	// Deleted indicates the file was Deleted at ModifiedTime.  NodeByPath
+	// responds exactly as if the node did not exist.
+	Deleted   bool
+	Sha256sum []byte // the sha of the full shade.File
 	// Children is a map indicating the presence of a node immediately
 	// below the current node in the tree.  The key is only the name of that
 	// node, a relative path, not fully qualified.
@@ -60,8 +64,8 @@ func NewTree(client drive.Client, refresh *time.Ticker) (*Tree, error) {
 	t := &Tree{
 		client: client,
 		nodes: map[string]Node{
-			"/": {
-				Filename: "/",
+			"": {
+				Filename: "",
 				Children: make(map[string]bool),
 			}},
 	}
@@ -76,16 +80,18 @@ func NewTree(client drive.Client, refresh *time.Ticker) (*Tree, error) {
 
 // NodeByPath returns a Node describing the given path.
 func (t *Tree) NodeByPath(p string) (Node, error) {
+	p = strings.TrimPrefix(p, "/")
 	t.nm.RLock()
 	defer t.nm.RUnlock()
-	if n, ok := t.nodes[p]; ok {
-		return n, nil
+	n, ok := t.nodes[p]
+	if !ok || n.Deleted {
+		t.log("known nodes:\n")
+		for _, n := range t.nodes {
+			t.log(fmt.Sprintf("%+v\n", n))
+		}
+		return Node{}, fmt.Errorf("no such node: %q", p)
 	}
-	t.log("known nodes:\n")
-	for _, n := range t.nodes {
-		t.log(fmt.Sprintf("%+v\n", n))
-	}
-	return Node{}, fmt.Errorf("no such node: %q", p)
+	return n, nil
 }
 
 func unmarshalChunk(fj, sha []byte) (*shade.File, error) {
@@ -132,8 +138,56 @@ func (t *Tree) NumNodes() int {
 	return len(t.nodes)
 }
 
-// GetChunk is not yet implemented.
-func (t *Tree) GetChunk(sha256sum []byte) {
+// Mkdir provides a way to create synthetic directories, for the Mkdir Fuse op
+func (t *Tree) Mkdir(dir string) Node {
+	dir = strings.TrimPrefix(dir, "/")
+	t.nm.Lock()
+	defer t.nm.Unlock()
+	t.nodes[dir] = Node{
+		Filename: dir,
+		Children: make(map[string]bool),
+	}
+	t.addParents(dir)
+	return t.nodes[dir]
+}
+
+// Create adds a new shade.File node to the tree
+func (t *Tree) Create(filename string) Node {
+	t.nm.Lock()
+	defer t.nm.Unlock()
+	node := Node{
+		Filename:  filename,
+		Sha256sum: []byte("f00d"),
+	}
+	t.nodes[node.Filename] = node
+	t.addParents(node.Filename)
+	return node
+}
+
+// Update accepts a replacement shade.File node
+func (t *Tree) Update(n Node) {
+	t.nm.Lock()
+	defer t.nm.Unlock()
+	on, ok := t.nodes[n.Filename]
+	if !ok {
+		t.log(fmt.Sprintf("Attempt to update a non-existent node: %+v", n))
+		return
+	}
+	if on.ModifiedTime.After(n.ModifiedTime) {
+		t.log(fmt.Sprintf("Update mtime (%s) older than current Node (%s)", n.ModifiedTime, on.ModifiedTime))
+		return
+	}
+	t.nodes[n.Filename] = n
+	if n.Deleted {
+		dir, f := path.Split(n.Filename)
+		dir = strings.TrimSuffix(dir, "/")
+		parent, ok := t.nodes[dir]
+		if !ok {
+			t.log(fmt.Sprintf("Updated node without a parent: %+v", n))
+			return
+		}
+		delete(parent.Children, f)
+	}
 }
 
 // Refresh updates the cached view of the Tree by calling ListFiles and
@@ -169,8 +223,9 @@ func (t *Tree) Refresh() error {
 		}
 		node := Node{
 			Filename:     file.Filename,
-			Filesize:     uint64(file.Filesize),
+			Filesize:     file.Filesize,
 			ModifiedTime: file.ModifiedTime,
+			Deleted:      file.Deleted,
 			Sha256sum:    sha256sum,
 			Children:     nil,
 		}
@@ -192,11 +247,7 @@ func (t *Tree) Refresh() error {
 // recursive function to update parent dirs
 func (t *Tree) addParents(filepath string) {
 	dir, f := path.Split(filepath)
-	if dir == "" {
-		dir = "/"
-	} else {
-		dir = strings.TrimSuffix(dir, "/")
-	}
+	dir = strings.TrimSuffix(dir, "/")
 	t.log(fmt.Sprintf("adding %q as a child of %q", f, dir))
 	// TODO(asjoyner): handle file + directory collisions
 	if parent, ok := t.nodes[dir]; !ok {
@@ -207,8 +258,9 @@ func (t *Tree) addParents(filepath string) {
 		}
 	} else {
 		parent.Children[f] = true
+		return
 	}
-	if dir != "/" {
+	if dir != "" {
 		t.addParents(dir)
 	}
 }
@@ -227,6 +279,6 @@ func (t *Tree) Debug() {
 
 func (t *Tree) log(msg string) {
 	if t.debug {
-		log.Printf("CACHE: %s\n", msg)
+		log.Printf("CACHE: %s", msg)
 	}
 }

@@ -4,6 +4,7 @@ package fusefs
 // and the Shade Drive API.
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"bazil.org/fuse"
@@ -26,12 +28,13 @@ import (
 
 var kernelRefresh = flag.Duration("kernel-refresh", time.Minute, "How long the kernel should cache metadata entries.")
 
+// DefaultChunkSizeBytes defines the default for newly created shade.File(s)
+var DefaultChunkSizeBytes = 16 * 1024 * 1024
+
 const blockSize uint32 = 4096
 
 // Server holds the state about the fuse connection
 type Server struct {
-	//db         *drive_db.DriveDB
-	//service    *drive.Service
 	client  drive.Client
 	tree    *Tree
 	inode   *InodeMap
@@ -68,11 +71,81 @@ func New(client drive.Client, conn *fuse.Conn, refresh *time.Ticker) (*Server, e
 }
 
 type handle struct {
-	inode fuse.NodeID
-	file  *shade.File
-	// TODO(asjoyner): track dirty chunks here?
-	writer   *io.PipeWriter
-	lastByte int64
+	inode  fuse.NodeID
+	file   *shade.File
+	chunks map[int64]shade.Chunk
+	dirty  map[int64][]byte
+}
+
+// return the current bytes of a chunk
+// TODO: write a test for this
+func (h *handle) chunkBytes(chunkNum int64, client drive.Client) ([]byte, error) {
+	if dirtyChunk, ok := h.dirty[chunkNum]; ok {
+		return dirtyChunk, nil
+	}
+	cleanChunk, ok := h.chunks[chunkNum]
+	if !ok { // no chunk data at this offset (yet)
+		return make([]byte, 0), nil
+	}
+	cb, err := client.GetChunk(cleanChunk.Sha256)
+	if err != nil {
+		return nil, err
+	}
+	return cb, nil
+}
+
+// applyWrite takes data, at an offset, and applies it to the open file as
+// dirty blocks.  It uses the provided client to look up the existing content
+// of the associated shade.File object, as necessary.
+//
+// For some additional notes on how this works, see Chunk Notes.md.
+func (h *handle) applyWrite(data []byte, offset int64, client drive.Client) error {
+	// determine which chunks need to be updated
+	chunkSize := int64(h.file.Chunksize)
+	writeSize := int64(len(data))
+	eoWrite := offset + writeSize
+	firstChunk := offset / chunkSize
+	lastChunk := (eoWrite - 1) / chunkSize
+
+	var dataPtr int64 // tracks bytes read from data into chunks
+	for cn := firstChunk; cn <= lastChunk; cn++ {
+		//fmt.Printf("working chunk %d\n", cn)
+		chunkStart := cn * chunkSize // the position of the chunk in the file
+		var chunkOffset int64        // the start of the write inside this chunk
+		if offset > chunkStart {
+			chunkOffset = offset - chunkStart
+		}
+		cb, err := h.chunkBytes(cn, client)
+		if err != nil {
+			return err
+		}
+
+		//fmt.Printf("before copy: %q\n", cb)
+		n := copy(cb[chunkOffset:], data[dataPtr:])
+		//fmt.Printf("post copy: %q\n", cb)
+		dataPtr += int64(n)
+		// determine if we read all of the data, or filled the chunk
+		chunkRemainder := chunkSize - int64(len(cb))
+		dataRemainder := writeSize - dataPtr
+		var appendSize int64
+		//fmt.Printf("dataremaidner: %d chunkRemainder: %d\n", dataRemainder, chunkRemainder)
+		if dataRemainder > 0 && dataRemainder <= chunkRemainder {
+			appendSize = dataRemainder
+		} else if dataRemainder > 0 && dataRemainder > chunkRemainder {
+			appendSize = chunkRemainder
+		}
+
+		// extend cb if necessary
+		if appendSize > 0 {
+			//fmt.Printf("append[%d:%d] (%q)\n", dataPtr, appendSize, data)
+			cb = append(cb, data[dataPtr:dataPtr+appendSize]...)
+			dataPtr += appendSize
+		}
+		//fmt.Printf("post extend: %q\n", cb)
+
+		h.dirty[cn] = cb
+	}
+	return nil
 }
 
 // Serve receives and dispatches Requests from the kernel
@@ -89,6 +162,9 @@ func (sc *Server) Serve() error {
 		fuse.Debug(fmt.Sprintf("%+v", req))
 		// multiple goroutines seems to make Server take about 5x wall clock time
 		// to handle requests under load, as shown by TestFuseRead.
+		// jonallie points out, instantiating goroutines isn't free (not even close)
+		// plausibly toss these onto a pool as a cheap fix, consider one worker per
+		// open file handle as a more-intrusive but plausibly-faster change?
 		// go sc.serve(req)
 		sc.serve(req)
 	}
@@ -130,7 +206,6 @@ func (sc *Server) serve(req fuse.Request) {
 
 	// Ack that the kernel has forgotten the metadata about an inode
 	case *fuse.ForgetRequest:
-		sc.inode.Release(req.N)
 		req.Respond()
 
 	// Allocate a kernel file handle, return it
@@ -183,8 +258,11 @@ func (sc *Server) serve(req fuse.Request) {
 	case *fuse.WriteRequest:
 		sc.write(req)
 
-	// Ack that the kernel has forgotten the metadata about an inode
+	// Flush writes to the underlying storage layers
 	case *fuse.FlushRequest:
+		sc.hm.Lock()
+		defer sc.hm.Unlock()
+		sc.flush(req.Handle)
 		req.Respond()
 
 	// Ack release of the kernel's mapping an inode->fileId
@@ -286,7 +364,7 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 		ci := sc.inode.FromPath(childPath)
 		data = fuse.AppendDirent(data, fuse.Dirent{Inode: ci, Name: name, Type: childType})
 	}
-	fuse.Debug(fmt.Sprintf("ReadDir Response: %v", data))
+	fuse.Debug(fmt.Sprintf("ReadDir Response: %s", string(data)))
 
 	fuseutil.HandleRead(req, resp, data)
 	req.Respond(resp)
@@ -294,10 +372,15 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 
 func (sc *Server) read(req *fuse.ReadRequest) {
 	h, err := sc.handleByID(req.Handle)
+	if err != nil || h.file == nil {
+		fuse.Debug(fmt.Sprintf("handleByID(%v): %v", req.Handle, err))
+		req.RespondError(fuse.ESTALE)
+		return
+	}
 	f := h.file
 	fuse.Debug(fmt.Sprintf("Read(name: %s, offset: %d, size: %d)", f.Filename, req.Offset, req.Size))
 	chunkSize := int64(f.Chunksize)
-	chunkSums, err := chunksForRead(f, req.Offset, chunkSize)
+	chunkSums, err := chunksForRead(f, req.Offset, int64(req.Size))
 	if err != nil {
 		fuse.Debug(fmt.Sprintf("chunksForRead(): %s", err))
 		req.RespondError(fuse.EIO)
@@ -330,9 +413,6 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 	high := low + int64(req.Size)
 	if high > dsize {
 		high = dsize
-		fuse.Debug(fmt.Sprintf("too-low chunk calculation error (low:%d, dsize:%d): filename: %s, offset:%d, size:%d, filesize:%d", low, dsize, f.Filename, req.Offset, req.Size, f.Filesize))
-		req.RespondError(fuse.EIO)
-		return
 	}
 	d := allTheBytes[low:high]
 	resp := &fuse.ReadResponse{Data: d}
@@ -354,8 +434,8 @@ func (sc *Server) attrFromNode(node Node, i uint64) fuse.Attr {
 		attr.Nlink = uint32(len(node.Children) + 2)
 		return attr
 	}
-	blocks := node.Filesize / uint64(blockSize)
-	if r := node.Filesize % uint64(blockSize); r > 0 {
+	blocks := node.Filesize / int64(blockSize)
+	if r := node.Filesize % int64(blockSize); r > 0 {
 		blocks++
 	}
 	attr.Atime = node.ModifiedTime
@@ -375,10 +455,17 @@ func (sc *Server) open(req *fuse.OpenRequest) {
 		return
 	}
 
-	// TODO: if allow_other, require uid == invoking uid to allow writes
+	if !req.Flags.IsReadOnly() { // write access requested
+		// TODO: if allow_other, require uid == invoking uid to allow writes
+	}
 
 	// get the shade.File for the node, stuff it in the Handle
 	f, err := sc.tree.FileByNode(n)
+	if err != nil && !req.Dir {
+		fuse.Debug(fmt.Sprintf("FileByNode(%v): %s", n, err))
+		req.RespondError(fuse.ENOENT)
+		return
+	}
 	hID := sc.allocHandle(req.Header.Node, f)
 
 	resp := fuse.OpenResponse{Handle: fuse.HandleID(hID)}
@@ -390,7 +477,7 @@ func (sc *Server) open(req *fuse.OpenRequest) {
 func (sc *Server) allocHandle(inode fuse.NodeID, f *shade.File) uint64 {
 	var hID uint64
 	var found bool
-	h := handle{inode: inode, file: f}
+	h := handle{inode: inode, file: f, dirty: make(map[int64][]byte)}
 	sc.hm.Lock()
 	defer sc.hm.Unlock()
 	for i, ch := range sc.handles {
@@ -419,152 +506,146 @@ func (sc *Server) handleByID(id fuse.HandleID) (handle, error) {
 }
 
 // Acknowledge release (eg. close) of file handle by the kernel
-// TODO(asjoyner): flush any remaining dirty blocks?
 func (sc *Server) release(req *fuse.ReleaseRequest) {
 	sc.hm.Lock()
 	defer sc.hm.Unlock()
 	h := sc.handles[req.Handle]
-	if h.writer != nil {
-		h.writer.Close()
-	}
+	// TODO: Does Flush always get called directly?
+	sc.flush(req.Handle)
 	h.inode = 0
 	req.Respond()
 }
 
-// Create file in drive, allocate kernel filehandle for writes
+// Allocate handle, corresponding to kernel filehandle, for writes
 func (sc *Server) create(req *fuse.CreateRequest) {
-	// TODO(asjoyner): shadeify
-	req.RespondError(fuse.ENOSYS)
-	/*
-		pInode := uint64(req.Header.Node)
-		parent, err := sc.db.FileByInode(pInode)
-		if err != nil {
-			debug.Printf("failed to get parent file: %v", err)
-			req.RespondError(fuse.EIO)
-			return
-		}
-		p := &drive.ParentReference{Id: parent.Id}
+	pn, err := sc.nodeByID(req.Header.Node)
+	if err != nil {
+		req.RespondError(fuse.ENOENT)
+		return
+	}
+	// create child node
+	fn := path.Join(pn.Filename, req.Name)
+	n := sc.tree.Create(fn)
+	inode := sc.inode.FromPath(fn)
+	// create handle
+	hID := sc.allocHandle(
+		fuse.NodeID(inode),
+		&shade.File{
+			Filename:  fn,
+			Chunksize: DefaultChunkSizeBytes,
+		},
+	)
 
-		f := &drive.File{Title: req.Name}
-		f.Parents = []*drive.ParentReference{p}
-		f, err = sc.service.Files.Insert(f).Do()
-		if err != nil {
-			debug.Printf("Files.Insert(f).Do(): %v", err)
-			req.RespondError(fuse.EIO)
-			return
-		}
-		inode, err := sc.db.InodeForFileId(f.Id)
-		if err != nil {
-			debug.Printf("failed creating inode for %v: %v", req.Name, err)
-			req.RespondError(fuse.EIO)
-			return
-		}
+	// Respond to tell the fuse kernel module about the file
+	resp := fuse.CreateResponse{
+		// describes the opened handle
+		OpenResponse: fuse.OpenResponse{
+			Handle: fuse.HandleID(hID),
+		},
+		// describes the created file
+		LookupResponse: fuse.LookupResponse{
+			Node:       fuse.NodeID(inode),
+			EntryValid: *kernelRefresh,
+			Attr:       sc.attrFromNode(n, inode),
+		},
+	}
+	fuse.Debug(fmt.Sprintf("Create(%v in %v): %+v", req.Name, pn.Filename, resp))
 
-		r, w := io.Pipe() // plumbing between WriteRequest and Drive
-		h := sc.allocHandle(fuse.NodeID(inode), w)
-
-		go sc.updateInDrive(f, r)
-
-		// Tell fuse and the OS about the file
-		df, err := sc.db.UpdateFile(nil, f)
-		if err != nil {
-			debug.Printf("failed to update levelDB for %v: %v", f.Id, err)
-			// The write has happened to drive, but we failed to update the kernel.
-			// The Changes API will update Fuse, and when the kernel metadata for
-			// the parent directory expires, the new file will become visible.
-			req.RespondError(fuse.EIO)
-			return
-		}
-
-		resp := fuse.CreateResponse{
-			// describes the opened handle
-			OpenResponse: fuse.OpenResponse{
-				Handle: fuse.HandleID(h),
-				Flags:  fuse.OpenNonSeekable,
-			},
-			// describes the created file
-			LookupResponse: fuse.LookupResponse{
-				Node:       fuse.NodeID(inode),
-				EntryValid: *kernelRefresh,
-				Attr:       sc.attrFromNode(*df, inode),
-			},
-		}
-		fuse.Debug(fmt.Sprintf("Create(%v in %v): %+v", req.Name, parent.Title, resp))
-
-		req.Respond(&resp)
-	*/
+	req.Respond(&resp)
 }
 
+// mkdir create a directory in the tree.  This is very cheap, because in Shade,
+// directories are entirey ephemeral concepts, only files are stored remotely.
 func (sc *Server) mkdir(req *fuse.MkdirRequest) {
-	// TODO(asjoyner): shadeify
-	req.RespondError(fuse.ENOSYS)
-	/*
-		// TODO: if allow_other, require uid == invoking uid to allow writes
-		pInode := uint64(req.Header.Node)
-		pId, err := sc.db.FileIdForInode(pInode)
-		if err != nil {
-			debug.Printf("failed to get parent fileid: %v", err)
-			req.RespondError(fuse.EIO)
-			return
-		}
-		p := []*drive.ParentReference{&drive.ParentReference{Id: pId}}
-		file := &drive.File{Title: req.Name, MimeType: driveFolderMimeType, Parents: p}
-		file, err = sc.service.Files.Insert(file).Do()
-		if err != nil {
-			debug.Printf("Insert failed: %v", err)
-			req.RespondError(fuse.EIO)
-			return
-		}
-		debug.Printf("Child of %v created in drive: %+v", file.Parents[0].Id, file)
-		f, err := sc.db.UpdateFile(nil, file)
-		if err != nil {
-			debug.Printf("failed to update levelDB for %v: %v", f.Id, err)
-			// The write has happened to drive, but we failed to update the kernel.
-			// The Changes API will update Fuse, and when the kernel metadata for
-			// the parent directory expires, the new dir will become visible.
-			req.RespondError(fuse.EIO)
-			return
-		}
-		sc.db.FlushCachedInode(pInode)
-		resp := &fuse.MkdirResponse{}
-		resp.Node = fuse.NodeID(f.Inode)
-		resp.EntryValid = *kernelRefresh
-		resp.Attr = sc.attrFromNode(*f, inode)
-		fuse.Debug(fmt.Sprintf("Mkdir(%v): %+v", req.Name, f))
-		req.Respond(resp)
-	*/
+	// TODO: if allow_other, require uid == invoking uid to allow writes
+	p, err := sc.nodeByID(req.Header.Node)
+	if err != nil {
+		req.RespondError(fuse.ENOENT)
+		return
+	}
+
+	if !p.Synthetic() {
+		// TODO: is this right?  we want to return "Not a directory"
+		req.RespondError(fuse.EEXIST)
+		return
+	}
+	if p.Children[req.Name] {
+		req.RespondError(fuse.EEXIST)
+	}
+
+	dir := path.Join(p.Filename, req.Name)
+	n := sc.tree.Mkdir(dir)
+
+	inode := sc.inode.FromPath(dir)
+
+	resp := fuse.LookupResponse{
+		Node:       fuse.NodeID(inode),
+		EntryValid: *kernelRefresh,
+		Attr:       sc.attrFromNode(n, inode),
+	}
+	fuse.Debug(fmt.Sprintf("Mkdir(%v): %+v", req.Name, resp))
+	req.Respond(&fuse.MkdirResponse{LookupResponse: resp})
 }
 
 // Removes the inode described by req.Header.Node (doubles as rmdir)
-// Nota bene: there is no check preventing the removal of a directory which
-// contains files.
+// This is implemented as publishing a file noted as "deleted" with a higher
+// ModifiedTime.
 func (sc *Server) remove(req *fuse.RemoveRequest) {
-	// TODO(asjoyner): shadeify
-	req.RespondError(fuse.ENOSYS)
 	// TODO: if allow_other, require uid == invoking uid to allow writes
-	// TODO: consider disallowing deletion of directories with contents.. but what error?
-	/*
-		pInode := uint64(req.Header.Node)
-		parent, err := sc.db.FileByInode(pInode)
-		if err != nil {
-			debug.Printf("failed to get parent file: %v", err)
-			req.RespondError(fuse.EIO)
-			return
-		}
-		for _, cInode := range parent.Children {
-			child, err := sc.db.FileByInode(cInode)
-			if err != nil {
-				debug.Printf("failed to get child file: %v", err)
-			}
-			if child.Title == req.Name {
-				sc.service.Files.Delete(child.Id).Do()
-				sc.db.RemoveFileById(child.Id, nil)
-				req.Respond()
-				return
-			}
-		}
+	parentdir, err := sc.inode.ToPath(uint64(req.Header.Node))
+	if err != nil {
+		fuse.Debug(fmt.Sprintf("sc.NodeById(%d): %s", req.Header.Node, err))
 		req.RespondError(fuse.ENOENT)
-	*/
+		return
+	}
+	filename := strings.TrimPrefix(path.Join(parentdir, req.Name), "/")
+	// create Deleted File
+	f := &shade.File{
+		Filename:     filename,
+		Chunksize:    DefaultChunkSizeBytes,
+		ModifiedTime: time.Now(),
+		Deleted:      true,
+	}
+	node := Node{
+		Filename:     f.Filename,
+		ModifiedTime: f.ModifiedTime,
+		Deleted:      true,
+		Sha256sum:    []byte("deleted"),
+	}
+	if req.Dir {
+		// ensure the are no children of this node
+		node, err := sc.tree.NodeByPath(filename)
+		if err != nil {
+			fuse.Debug(fmt.Sprintf("sc.NodeById(%d): %s", req.Header.Node, err))
+			req.RespondError(fuse.ENOENT)
+		}
+		if len(node.Children) == 0 {
+			fuse.Debug(fmt.Sprintf("sc.NodeById(%d): %s", req.Header.Node, err))
+			req.RespondError(syscall.ENOTEMPTY)
+		}
+		node.Sha256sum = nil
+	} else {
+		// publish Deleted File
+		jm, err := json.Marshal(f)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "could not marshal shade.File: %s\n", err)
+			os.Exit(1)
+		}
+		sum := shade.Sum(jm)
+		for {
+			err := sc.client.PutFile(sum, jm)
+			if err != nil {
+				fuse.Debug(fmt.Sprintf("error storing file %s with sum: %x", filename, sum))
+				continue
+			}
+			fuse.Debug(fmt.Sprintf("stored file %s with sum: %x", filename, sum))
+			break
+		}
+	}
+	// remove Node
+	fuse.Debug(fmt.Sprintf("sc.tree.Update(..%s..)", f.Filename))
+	sc.tree.Update(node)
+	req.Respond()
 }
 
 // rename renames a file or directory, optionally reparenting it
@@ -653,32 +734,94 @@ func (sc *Server) rename(req *fuse.RenameRequest) {
 
 // Pass sequential writes on to the correct handle for uploading
 func (sc *Server) write(req *fuse.WriteRequest) {
-	// TODO(asjoyner): shadeify
-	req.RespondError(fuse.ENOSYS)
 	// TODO: if allow_other, require uid == invoking uid to allow writes
-	/*
-		h, err := sc.handleByID(req.Handle)
+	h, err := sc.handleByID(req.Handle)
+	if err != nil {
+		fuse.Debug(fmt.Sprintf("handleByID(%v): %v", req.Handle, err))
+		req.RespondError(fuse.ESTALE)
+		return
+	}
+
+	// update chunks in handle
+	sc.hm.Lock()
+	defer sc.hm.Unlock()
+	if h.applyWrite(req.Data, req.Offset, sc.client); err != nil {
+		req.RespondError(fuse.EIO)
+		return
+	}
+	sc.handles[req.Handle] = h
+	req.Respond(&fuse.WriteResponse{Size: len(req.Data)})
+}
+
+// Write out the dirty chunks to the shade drive.Client
+// Nb: caller is responsible for holding sc.hm
+func (sc *Server) flush(hID fuse.HandleID) {
+	h := sc.handles[hID]
+	if h.file == nil || len(h.dirty) == 0 {
+		return
+	}
+	// ensure h.file.Chunks is large enough
+	var lastDirtyChunk int64 = -1
+	for cn := range h.dirty {
+		if cn > lastDirtyChunk {
+			lastDirtyChunk = cn
+		}
+	}
+	fuse.Debug(fmt.Sprintf("Chunks length before: %+v", len(h.file.Chunks)))
+	if int64(len(h.file.Chunks)) <= lastDirtyChunk {
+		nc := make([]shade.Chunk, lastDirtyChunk+1, lastDirtyChunk+1)
+		copy(nc, h.file.Chunks)
+		h.file.Chunks = nc
+	}
+	fuse.Debug(fmt.Sprintf("Chunks length: %+v", len(h.file.Chunks)))
+	fuse.Debug(fmt.Sprintf("lastDirtyChunk: %+v", lastDirtyChunk))
+	for cn, dirtyChunk := range h.dirty {
+		sum := shade.Sum(dirtyChunk)
+		h.file.Chunks[cn].Sha256 = sum
+		if cn+1 == int64(len(h.file.Chunks)) {
+			h.file.LastChunksize = len(dirtyChunk)
+		}
+		for {
+			err := sc.client.PutChunk(sum, dirtyChunk)
+			if err != nil {
+				fuse.Debug(fmt.Sprintf("error storing chunk with sum: %x", sum))
+				continue
+			}
+			fuse.Debug(fmt.Sprintf("stored chunk with sum: %x", sum))
+			break
+		}
+	}
+	h.dirty = nil
+	h.file.ModifiedTime = time.Now()
+	h.file.UpdateFilesize()
+	jm, err := json.Marshal(h.file)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not marshal shade.File: %s\n", err)
+		os.Exit(1)
+	}
+	sum := shade.Sum(jm)
+	for {
+		err := sc.client.PutFile(sum, jm)
 		if err != nil {
-			fuse.Debug(fmt.Sprintf("inodeByNodeID(%v): %v", req.Handle, err))
-			req.RespondError(fuse.ESTALE)
-			return
+			fuse.Debug(fmt.Sprintf("error storing file %s with sum: %x", h.file.Filename, sum))
+			continue
 		}
-		if h.lastByte != req.Offset {
-			fuse.Debug(fmt.Sprintf("non-sequential write: got %v, expected %v", req.Offset, h.lastByte))
-			req.RespondError(fuse.EIO)
-			return
-		}
-		n, err := h.writer.Write(req.Data)
-		if err != nil {
-			req.RespondError(fuse.EIO)
-			return
-		}
-		sc.hm.Lock()
-		h.lastByte += int64(n)
-		sc.handles[req.Handle] = h
-		sc.hm.Unlock()
-		req.Respond(&fuse.WriteResponse{n})
-	*/
+		fuse.Debug(fmt.Sprintf("stored file %s with sum: %x", h.file.Filename, sum))
+		break
+	}
+
+	// Update sc.tree's understanding of the Node
+	n, err := sc.tree.NodeByPath(h.file.Filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not find existing file being flushed: %s\n", err)
+	}
+	n.Filesize = h.file.Filesize
+	n.ModifiedTime = h.file.ModifiedTime
+	n.Sha256sum = sum
+	sc.tree.Update(n)
+
+	// Update the handle
+	sc.handles[hID] = h
 }
 
 // TreeDebug enables debug logging for operations done by the Tree.
@@ -693,16 +836,17 @@ func chunksForRead(f *shade.File, offset, size int64) ([][]byte, error) {
 	chunkSize := int64(f.Chunksize)
 	firstChunk := offset / chunkSize
 	lastChunk := ((offset + size - 1) / chunkSize) + 1
-	if firstChunk > int64(len(f.Chunks)) {
-		return nil, fmt.Errorf("no chunk for read at: %d", firstChunk)
-	}
-	if lastChunk > int64(len(f.Chunks)) {
-		return nil, fmt.Errorf("no chunk for read at: %d", lastChunk)
+	if firstChunk > int64(len(f.Chunks)-1) {
+		return nil, fmt.Errorf("no first chunk %d for read at %d (%d bytes) in %v", firstChunk, offset, size, f)
 	}
 	// extract the Sha256 sums from the chunk objects
 	var chunks [][]byte
-	for _, c := range f.Chunks[firstChunk:lastChunk] {
-		chunks = append(chunks, c.Sha256)
+	for i := firstChunk; i < lastChunk; i++ {
+		if i > int64(len(f.Chunks)-1) {
+			fuse.Debug(fmt.Sprintf("no chunk %d for read at %d (%d bytes) in %v", lastChunk, offset, size, f))
+			continue
+		}
+		chunks = append(chunks, f.Chunks[i].Sha256)
 	}
 	return chunks, nil
 }
