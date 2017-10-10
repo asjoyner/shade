@@ -14,6 +14,7 @@ import (
 
 	// Drive client provider imports
 	_ "github.com/asjoyner/shade/drive/amazon"
+	_ "github.com/asjoyner/shade/drive/cache"
 	_ "github.com/asjoyner/shade/drive/google"
 	_ "github.com/asjoyner/shade/drive/local"
 	_ "github.com/asjoyner/shade/drive/memory"
