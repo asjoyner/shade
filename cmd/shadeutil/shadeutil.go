@@ -10,6 +10,7 @@ import (
 	"github.com/google/subcommands"
 
 	// Subcommand imports
+	_ "github.com/asjoyner/shade/cmd/shadeutil/cat"
 	_ "github.com/asjoyner/shade/cmd/shadeutil/ls"
 
 	// Drive client provider imports
@@ -27,5 +28,5 @@ func main() {
 
 	flag.Parse()
 	ctx := context.Background()
-	os.Exit(int(subcommands.Execute(ctx)))
+	os.Exit(int(subcommands.Execute(ctx, flag.Args())))
 }
