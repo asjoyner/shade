@@ -64,7 +64,6 @@ func (p *lsCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) su
 	if p.long {
 		fmt.Fprint(w, "\tid\t(sha)\tsize\tchunksize\tchunks\tmtime\tfilename\n")
 	}
-	fmt.Println(client.GetConfig().Provider)
 	lfm, err := client.ListFiles()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not get files: %v\n", err)
