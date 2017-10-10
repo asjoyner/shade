@@ -11,22 +11,26 @@ import (
 	"github.com/asjoyner/shade/drive"
 )
 
-// cache does not call RegisterProvider because it cannot be specified in a
-// config.  It is invoked directly by the tools to manage talking to the
-// configured clients.
+func init() {
+	drive.RegisterProvider("cache", NewClient)
+}
 
 // NewClient returns a Drive client which centralizes reading and writing to
 // multiple Providers.
-func NewClient(children []drive.Client) (*Drive, error) {
-	if len(children) == 0 {
+func NewClient(c drive.Config) (drive.Client, error) {
+	if len(c.Children) == 0 {
 		return nil, errors.New("no clients provided")
 	}
 	d := &Drive{}
-	for _, client := range children {
-		if client.GetConfig().Write {
+	for _, conf := range c.Children {
+		child, err := drive.NewClient(conf)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %s", conf.Provider, err)
+		}
+		if child.GetConfig().Write {
 			d.config.Write = true
 		}
-		d.clients = append(d.clients, client)
+		d.clients = append(d.clients, child)
 	}
 	return d, nil
 }

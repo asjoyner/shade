@@ -51,6 +51,7 @@ type Config struct {
 	Write         bool
 	MaxFiles      uint64
 	MaxChunkBytes uint64
+	Children      []Config
 }
 
 // OAuthConfig contains the OAuth configuration information.

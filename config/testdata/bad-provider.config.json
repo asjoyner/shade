@@ -1,6 +1,4 @@
-[
-  {
-    "Provider": "thiswillneverexist",
-    "Write": true
-  }
-]
+{
+  "Provider": "thiswillneverexist",
+  "Write": true
+}

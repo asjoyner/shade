@@ -1,8 +1,6 @@
-[
-  {
-    "Provider": "memory",
-    "Write": true,
-		"MaxFiles": 10000,
-		"MaxChunkBytes": 50000000
-  }
-]
+{
+	"Provider": "memory",
+	"Write": true,
+	"MaxFiles": 10000,
+	"MaxChunkBytes": 50000000
+}
