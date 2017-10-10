@@ -1,0 +1,11 @@
+{
+	"Provider": "cache",
+	"Children": [
+		{
+		"Provider": "memory",
+		"Write": true,
+		"MaxFiles": 10000,
+		"MaxChunkBytes": 50000000
+		}
+	]
+}

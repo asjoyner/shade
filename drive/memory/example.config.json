@@ -1,6 +1,4 @@
-[
-  {
-    "Provider": "memory",
-    "Write": true
-  }
-]
+{
+  "Provider": "memory",
+  "Write": true
+}
