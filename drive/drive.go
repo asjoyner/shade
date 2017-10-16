@@ -51,6 +51,8 @@ type Config struct {
 	Write         bool
 	MaxFiles      uint64
 	MaxChunkBytes uint64
+	RsaPublicKey  []byte
+	RsaPrivateKey []byte
 	Children      []Config
 }
 
