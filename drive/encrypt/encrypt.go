@@ -24,7 +24,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/asjoyner/shade/drive"
 )
@@ -43,6 +42,7 @@ func NewClient(c drive.Config) (drive.Client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse PKCS1 encoded private key from config: %s", err)
 		}
+		d.privkey = key
 		d.pubkey = &key.PublicKey
 	} else if len(c.RsaPublicKey) > 0 {
 		pubkey, err := x509.ParsePKIXPublicKey(c.RsaPublicKey)
@@ -69,6 +69,7 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initing encrypted client: %s", c.Provider, err)
 	}
+	d.client = child
 	if child.GetConfig().Write {
 		d.config.Write = true
 	}
@@ -100,22 +101,7 @@ type encryptedObj struct {
 // client.  The return is a list of sha256sums of the file object.  The keys
 // may be passed to GetChunk() to retrieve the corresponding shade.File.
 func (s *Drive) ListFiles() ([][]byte, error) {
-	encFiles, err := s.client.ListFiles()
-	if err != nil {
-		return nil, fmt.Errorf("Error reading from %q: %s", s.client.GetConfig().Provider, err)
-	}
-	rng := rand.Reader
-	files := make([][]byte, 0, len(encFiles))
-	for _, esum := range encFiles {
-		sum, err := rsa.DecryptOAEP(sha256.New(), rng, s.privkey, esum, nil)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "could not decrypt %x: %s\n", esum, err)
-			continue
-		}
-		files = append(files, sum)
-	}
-
-	return files, nil
+	return s.client.ListFiles()
 }
 
 // PutFile encrypts and writes the metadata describing a new file.  It uses the
@@ -205,19 +191,19 @@ func (s *Drive) EncryptChunk(f []byte) ([]byte, error) {
 
 // DecryptChunk reverses the behavior of EncryptChunk.
 func (s *Drive) DecryptChunk(f []byte) ([]byte, error) {
-	eo := encryptedObj{}
+	eo := &encryptedObj{}
 	if err := json.Unmarshal(f, eo); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal: %v", err)
 	}
 	rng := rand.Reader
 
-	keySlice, err := rsa.DecryptOAEP(sha256.New(), rng, s.privkey, eo.Bytes, nil)
+	keySlice, err := rsa.DecryptOAEP(sha256.New(), rng, s.privkey, eo.Key, nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not decrypt key: %s", err)
 	}
 	key := &[32]byte{}
 	copy(key[:], keySlice)
-	plaintext, err := Decrypt(f, key)
+	plaintext, err := Decrypt(eo.Bytes, key)
 	if err != nil {
 		return nil, fmt.Errorf("could not decrypt contents %s", err)
 	}
