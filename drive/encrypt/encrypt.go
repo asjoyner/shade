@@ -104,8 +104,7 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 	return s.client.ListFiles()
 }
 
-// PutFile encrypts and writes the metadata describing a new file.  It uses the
-// following process:
+// PutFile encrypts and writes the metadata describing a new file.
 func (s *Drive) PutFile(sha256sum, f []byte) error {
 	if s.config.Write == false {
 		return errors.New("no clients configured to write")

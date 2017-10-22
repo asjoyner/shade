@@ -15,7 +15,7 @@ func TestFileRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TestClient() for test config failed: %s", err)
 	}
-	drive.TestFileRoundTrip(t, tc, 2)
+	drive.TestFileRoundTrip(t, tc, 100)
 }
 
 func TestChunkRoundTrip(t *testing.T) {
