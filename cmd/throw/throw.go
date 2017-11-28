@@ -68,7 +68,7 @@ func main() {
 		os.Exit(3)
 	}
 
-	chunk := shade.Chunk{}
+	chunk := shade.NewChunk()
 	chunkbytes := make([]byte, *chunksize)
 	for {
 		// Read a chunk
@@ -91,13 +91,14 @@ func main() {
 		a := sha256.Sum256(chunkbytes)
 		chunk.Sha256 = a[:]
 
+		manifest.Chunks = append(manifest.Chunks, chunk)
+
 		// upload the chunk
-		if err := client.PutChunk(chunk.Sha256, chunkbytes); err != nil {
+		if err := client.PutChunk(chunk.Sha256, chunkbytes, &manifest); err != nil {
 			fmt.Fprintf(os.Stderr, "chunk upload failed: %s\n", err)
 			os.Exit(1)
 		}
 
-		manifest.Chunks = append(manifest.Chunks, chunk)
 		chunk.Index++
 	}
 

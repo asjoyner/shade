@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"sync"
 
+	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 )
 
@@ -68,7 +69,7 @@ type Drive struct {
 
 // ListFiles retrieves all of the File objects known to the client, and returns
 // the corresponding sha256sum of the file object.  Those may be passed to
-// GetChunk() to retrieve the corresponding shade.File.
+// GetFile() to retrieve the corresponding shade.File.
 func (s *Drive) ListFiles() ([][]byte, error) {
 	// a list mapping the ID(s) of the shade.File(s) in Drive to sha256sum
 	filters := "kind:FILE AND labels:shadeFile"
@@ -115,6 +116,12 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 	return resp, nil
 }
 
+// GetFile retrieves a file by sha256sum, as returned by ListFiles().
+// f should be marshalled JSON, and may be encrypted.
+func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
+	return s.GetChunk(sha256sum, nil)
+}
+
 // PutFile writes the manifest describing a new file.
 // f should be marshalled JSON, and may be encrypted.
 func (s *Drive) PutFile(sha256sum, contents []byte) error {
@@ -140,7 +147,7 @@ func (s *Drive) PutFile(sha256sum, contents []byte) error {
 //
 // The cache is especially helpful for shade.File objects, which are
 // efficiently looked up on each call of ListFiles.
-func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
+func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 	s.fm.RLock()
 	fileID, ok := s.files[string(sha256sum)]
 	s.fm.RUnlock()
@@ -171,7 +178,7 @@ func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
 }
 
 // PutChunk writes a chunk and returns its SHA-256 sum
-func (s *Drive) PutChunk(sha256sum []byte, chunk []byte) error {
+func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, f *shade.File) error {
 	s.fm.RLock()
 	_, ok := s.files[string(sha256sum)]
 	s.fm.RUnlock()

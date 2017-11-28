@@ -79,9 +79,9 @@ func TestFileRoundTrip(t *testing.T, c Client, numFiles uint64) {
 		}
 	}
 
-	// Check that the contents of the files can be retrived with GetChunk
+	// Check that the contents of the files can be retrived with GetFile
 	for _, stringSum := range retainedFiles {
-		returnedChunk, err := c.GetChunk([]byte(stringSum))
+		returnedChunk, err := c.GetFile([]byte(stringSum))
 		if err != nil {
 			t.Errorf("Failed to retrieve chunk %x: %s", stringSum, err)
 			continue
@@ -100,9 +100,21 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 	maxBytes := c.GetConfig().MaxChunkBytes
 	testChunks := randChunk(uint64(numChunks))
 
+	// Make a file out of the chunks
+	file := shade.NewFile()
+	i := 0
+	for sum, _ := range testChunks {
+		chunk := shade.NewChunk()
+		chunk.Index = i
+		chunk.Sha256 = []byte(sum)
+		file.Chunks = append(file.Chunks, chunk)
+		i++
+	}
+	file.LastChunksize = int(chunkSize)
+
 	// Populate test chunks into the client
 	for stringSum, chunk := range testChunks {
-		err := c.PutChunk([]byte(stringSum), chunk)
+		err := c.PutChunk([]byte(stringSum), chunk, file)
 		if err != nil {
 			t.Fatalf("Failed to put chunk %x: %s", stringSum, err)
 		} else {
@@ -117,7 +129,7 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 	}
 	orderedChunks := make([]string, 0, numChunks)
 	for stringSum, chunk := range testChunks {
-		err := c.PutChunk([]byte(stringSum), chunk)
+		err := c.PutChunk([]byte(stringSum), chunk, file)
 		if err != nil {
 			t.Fatalf("Failed to put test chunk a second time %x: %s", stringSum, err)
 		}
@@ -135,7 +147,7 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 
 	// Get each chunk by its Sum
 	for i, stringSum := range orderedChunks {
-		returnedChunk, err := c.GetChunk([]byte(stringSum))
+		returnedChunk, err := c.GetChunk([]byte(stringSum), file)
 		// Check that the newest chunks were retained
 		if uint64(i) >= firstRetainedChunk {
 			if err != nil {
@@ -147,7 +159,7 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 				// t.Errorf("got %q, want: %q", string(returnedChunk), string(chunk))
 			}
 		} else { // Check that the oldest chunks were removed
-			_, err := c.GetChunk([]byte(stringSum))
+			_, err := c.GetChunk([]byte(stringSum), file)
 			if err == nil {
 				t.Errorf("Retrieved chunk %d of %d which should have been expired: %x", i, len(orderedChunks), stringSum)
 			}

@@ -63,7 +63,7 @@ func TestFuseRead(t *testing.T) {
 
 	// Populate test chunks into the client
 	for stringSum, chunk := range testChunks {
-		err := client.PutChunk([]byte(stringSum), chunk)
+		err := client.PutChunk([]byte(stringSum), chunk, nil)
 		if err != nil {
 			t.Fatalf("Failed to put chunk \"%x\": %s", stringSum, err)
 		}
@@ -447,7 +447,7 @@ func TestApplyWrite(t *testing.T) {
 	posString := []byte("01234567")
 	s := sha256.Sum256(posString)
 	posStringSum := s[:]
-	if err := mc.PutChunk(posStringSum, posString); err != nil {
+	if err := mc.PutChunk(posStringSum, posString, nil); err != nil {
 		t.Fatalf("Failed to put chunk \"%x\": %s", s, err)
 	}
 

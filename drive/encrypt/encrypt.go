@@ -1,19 +1,30 @@
 // Package encrypt is an interface to manage encrypted storage backends.
-// It presents an unencrypted interface to callers, and stores bytes in its
-// Children encrypting the bytes written to it, and decrypting them again when
-// requested.
+// It presents an unencrypted interface to callers by storing bytes in the
+// provided Child client, encrypting the bytes written to it, and decrypting
+// them again when requested.
 //
-// Symmetric encryption of each Chunk is implemented as 256-bit AES-GCM with
-// random 96-bit nonces.  The AES key is encrypted with the provided RSA public
-// key, the encrypted key and chunk are wrapped in a JSON message and written
-// to the provided client.  This process is reversed when the bytes are read.
+// File objects are encrypted with an RSA public key provided in the config.
+// If an RSA private key is provided, GetFile and ListFiles will perform the
+// reverse operation.
 //
-// Nb: This package does not currently encrypt the SHA sums of the files or
-// chunks that are stored, only the data bytes.  See the comments in
-// EncryptChunk for an explanation of why.
+// Chunk objects are encrypted with 256-bit AES-GCM using an AES key stored in
+// the shade.File struct and a random 96-bit nonce stored with each shade.Chunk
+// struct.
+//
+// The sha256sum of each Chunk is AES encrypted with the same key as the
+// contents and a nonce which is stored in the corresponding shade.File struct.
+// Unlike the Chunk, the nonce cannot be stored appended to the sha256sum, because
+// it must be known in advance to retrieve the chunk.
+// Nb: It is important not to reuse a nonce with the same key, thus callers must
+// reset the Nonce in a shade.Chunk when updating the Sha256sum value.
+//
+// The sha256sum of File objects are not encrypted.  The struct contains
+// sufficient internal randomness (Nonces of shade.Chunk objects, mtime, etc)
+// that the sum does not leak information about the contents of the file.
 package encrypt
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -23,8 +34,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 
+	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 )
 
@@ -90,8 +101,7 @@ type Drive struct {
 	privkey *rsa.PrivateKey
 }
 
-// encryptedObj is used to store a shade.File and shade.Chunk objects in the
-// child client.
+// encryptedObj is used to store shade.File objects in the child client.
 type encryptedObj struct {
 	Key   []byte // the symmetric key, an AES 256 key
 	Bytes []byte // the provided shdae.File object
@@ -99,19 +109,38 @@ type encryptedObj struct {
 
 // ListFiles retrieves all of the File objects known to the child
 // client.  The return is a list of sha256sums of the file object.  The keys
-// may be passed to GetChunk() to retrieve the corresponding shade.File.
+// may be passed to GetFile() to retrieve the corresponding shade.File.
 func (s *Drive) ListFiles() ([][]byte, error) {
 	return s.client.ListFiles()
 }
 
 // PutFile encrypts and writes the metadata describing a new file.
+// It uses the following process:
+//  - generates a new 256-bit AES encryption key
+//  - uses the new key to Encrypt() the provided File's bytes
+//  - RSA encrypts the AES key (but not the sha256sum of the File's bytes)
+//  - bundles the encrypted key and encrypted bytes as an encryptedObj
+//  - marshals the encryptedObj as JSON and store it in the child client, at
+//    the value of the sha256sum of the plaintext
 func (s *Drive) PutFile(sha256sum, f []byte) error {
 	if s.config.Write == false {
 		return errors.New("no clients configured to write")
 	}
-	jm, err := s.EncryptChunk(f)
+	key := shade.NewSymmetricKey()
+	rng := rand.Reader
+	encryptedKey, err := rsa.EncryptOAEP(sha256.New(), rng, s.pubkey, key[:], nil)
+	if err != nil {
+		return fmt.Errorf("could not encrypt key: %s", err)
+	}
+	encryptedBytes, err := Encrypt(f, key)
 	if err != nil {
 		return fmt.Errorf("encrypting file %x: %s", sha256sum, err)
+	}
+	// TODO: consider making this more efficient by avoiding JSON and using a
+	// fixed-size prefix to store the encryptedKey, ala gcm.Seal and gcm.Open.
+	jm, err := json.Marshal(encryptedObj{Key: encryptedKey, Bytes: encryptedBytes})
+	if err != nil {
+		return fmt.Errorf("could not marshal json: %s", err)
 	}
 	if err := s.client.PutFile(sha256sum, jm); err != nil {
 		return fmt.Errorf("writing encrypted file: %x", sha256sum)
@@ -119,79 +148,18 @@ func (s *Drive) PutFile(sha256sum, f []byte) error {
 	return nil
 }
 
-// GetChunk retrieves a chunk with a given SHA-256 sum.  It will be returned
-// from the first client in the slice of structs that returns the chunk.
-func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
-	encryptedChunk, err := s.client.GetChunk(sha256sum)
+// GetFile retrieves the file object described by the sha256sum, decrypts it,
+// and returns it to the caller.  It reverses the process described in
+// PutFile.
+func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
+	jm, err := s.client.GetFile(sha256sum)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading encrypted file %x: %s", sha256sum, err)
 	}
-	chunk, err := s.DecryptChunk(encryptedChunk)
-	if err != nil {
-		return nil, fmt.Errorf("decrypting file %x: %s", sha256sum, err)
-	}
-	return chunk, nil
-}
-
-// PutChunk writes a chunk associated with a SHA-256 sum.  It will attempt to write to
-// all shade backends configured to Write.  If any backends are Persistent, it
-// returns an error if all Persistent backends fail to write.
-func (s *Drive) PutChunk(sha256sum []byte, chunk []byte) error {
-	if s.config.Write == false {
-		return errors.New("no clients configured to write")
-	}
-	jm, err := s.EncryptChunk(chunk)
-	if err != nil {
-		return fmt.Errorf("encrypting file: %x", sha256sum)
-	}
-	if err := s.client.PutChunk(sha256sum, jm); err != nil {
-		return fmt.Errorf("writing encrypted file: %x", sha256sum)
-	}
-	return nil
-}
-
-// EncryptChunk accepts a sha256sum and bytes, and returns a suitably encrypted
-// copy of those bytes for persistent storage.  It uses the following process:
-//  - generates a new 256-bit encryption key
-//  - uses the new key to encrypt the provided File's bytes
-//  - RSA encrypts that key (but not the bytes' sha256sum)
-//  - bundles the encrypted key and encrypted File bytes as an EncryptedFile
-//  - marshals the EncryptedFile as JSON and returns it
-func (s *Drive) EncryptChunk(f []byte) ([]byte, error) {
-	rng := rand.Reader
-	key := NewEncryptionKey()
-	encryptedKey, err := rsa.EncryptOAEP(sha256.New(), rng, s.pubkey, key[:], nil)
-	if err != nil {
-		return nil, fmt.Errorf("could not encrypt key: %s", err)
-	}
-	// It would be nice to properly encrypt the sha256sum, but doing it right
-	// requires that it isn't deterministic, which breaks the ability to look up
-	// by the unencrypted-sha256sum.  When receiving a GetChunk request, this
-	// module needs a repeataable method to find the sha256sum.  If you're
-	// reading this, and can come up with a good way to do that (which doesn't
-	// require storing and plumbing the nonce back, or make it trivial to connect
-	// "input chunk Foo" to "stored at value Bar" given this code), I'm all ears.
-	/*
-		encryptedSum, err := rsa.EncryptOAEP(sha256.New(), rng, s.pubkey, sha256sum, nil)
-		if err != nil {
-			return nil, nil, fmt.Errorf("could not encrypt sum %q: %s\n", sha256sum, err)
-		}
-	*/
-	encryptedBytes, err := Encrypt(f, key)
-	if err != nil {
-		return nil, fmt.Errorf("could not encrypt contents: %s", err)
-	}
-	jm, err := json.Marshal(encryptedObj{Key: encryptedKey, Bytes: encryptedBytes})
-	if err != nil {
-		return nil, fmt.Errorf("could not marshal json: %s", err)
-	}
-	return jm, nil
-}
-
-// DecryptChunk reverses the behavior of EncryptChunk.
-func (s *Drive) DecryptChunk(f []byte) ([]byte, error) {
 	eo := &encryptedObj{}
-	if err := json.Unmarshal(f, eo); err != nil {
+	// TODO: consider making this more efficient by avoiding JSON and using a
+	// fixed-size prefix to store the encryptedKey, ala gcm.Seal and gcm.Open.
+	if err := json.Unmarshal(jm, eo); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal: %v", err)
 	}
 	rng := rand.Reader
@@ -206,24 +174,89 @@ func (s *Drive) DecryptChunk(f []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not decrypt contents %s", err)
 	}
+	if err != nil {
+		return nil, fmt.Errorf("decrypting encrypted file %x: %s", sha256sum, err)
+	}
 	return plaintext, nil
 }
 
-// NewEncryptionKey generates a random 256-bit key for Encrypt() and
-// Decrypt(). It panics if the source of randomness fails.
-func NewEncryptionKey() *[32]byte {
-	key := [32]byte{}
-	_, err := io.ReadFull(rand.Reader, key[:])
-	if err != nil {
-		panic(err)
+// PutChunk writes a chunk associated with a SHA-256 sum.  It uses the following process:
+//  - From the provided shade.File struct, retrieve:
+//    - the AES key of the File
+//    - the Nonce of the associated shade.Chunk struct
+//  - encrypt the sha256sum with the provided Key and Nonce
+//  - encrypt the bytes with the provided Key and a unique Nonce
+//  - store the encrypted bytes at the encrypted sum in the child client
+func (s *Drive) PutChunk(sha256sum []byte, chunkBytes []byte, f *shade.File) error {
+	if s.config.Write == false {
+		return errors.New("no clients configured to write")
 	}
-	return &key
+	encBytes, err := Encrypt(chunkBytes, f.AesKey)
+	if err != nil {
+		return fmt.Errorf("encrypting file: %x", sha256sum)
+	}
+	encryptedSum, err := GetEncryptedSum(sha256sum, f)
+	if err != nil {
+		return fmt.Errorf("encrypting sha256sum %x: %s", sha256sum, err)
+	}
+
+	if err := s.client.PutChunk(encryptedSum, encBytes, f); err != nil {
+		return fmt.Errorf("writing encrypted file %x: %s", sha256sum, err)
+	}
+	return nil
+}
+
+// GetChunk retrieves and decrypts the chunk with a given SHA-256 sum.
+// It reverses the process of PutChunk, in particular, leveraging the stored
+// Nonce to be able to find the encrypted sha256sum in the child client.
+func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
+	encryptedSum, err := GetEncryptedSum(sha256sum, f)
+	if err != nil {
+		return nil, fmt.Errorf("encrypting sha256sum %x: %s", sha256sum, err)
+	}
+
+	encBytes, err := s.client.GetChunk(encryptedSum, f)
+	if err != nil {
+		return nil, err
+	}
+	chunkBytes, err := Decrypt(encBytes, f.AesKey)
+	if err != nil {
+		return nil, fmt.Errorf("decrypting file %x: %s", sha256sum, err)
+	}
+	return chunkBytes, nil
+}
+
+// GetEncryptedSum calculates the encrypted sha256sum that a chunk will be
+// stored at, for a given chunk in a given file.  It is used both by PutChunk
+// to store the chunk, and later by GetChunk to find it again.
+func GetEncryptedSum(sha256sum []byte, f *shade.File) (encryptedSum []byte, err error) {
+	var nonce []byte
+	// Find the chunk's Nonce
+	for _, chunk := range f.Chunks {
+		if bytes.Equal(chunk.Sha256, sha256sum) {
+			if chunk.Nonce == nil {
+				return nil, fmt.Errorf("no Nonce in Chunk: %x", sha256sum)
+			}
+			nonce = chunk.Nonce
+		}
+	}
+	if nonce == nil {
+		return nil, fmt.Errorf("no corresponding Chunk in File: %x", sha256sum)
+	}
+	return EncryptUnsafe(sha256sum, f.AesKey, nonce)
 }
 
 // Encrypt encrypts data using 256-bit AES-GCM.  This both hides the content of
 // the data and provides a check that it hasn't been altered. Output takes the
 // form nonce|ciphertext|tag where '|' indicates concatenation.
 func Encrypt(plaintext []byte, key *[32]byte) (ciphertext []byte, err error) {
+	return EncryptUnsafe(plaintext, key, shade.NewNonce())
+}
+
+// EncryptUnsafe is the internal implementation of Encrypt().  It  allows you
+// to specify the key AND the nonce.  Use with caution: you must not encrypt
+// two different messages with the same key and nonce!
+func EncryptUnsafe(plaintext []byte, key *[32]byte, nonce []byte) (ciphertext []byte, err error) {
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, err
@@ -234,10 +267,8 @@ func Encrypt(plaintext []byte, key *[32]byte) (ciphertext []byte, err error) {
 		return nil, err
 	}
 
-	nonce := make([]byte, gcm.NonceSize())
-	_, err = io.ReadFull(rand.Reader, nonce)
-	if err != nil {
-		return nil, err
+	if len(nonce) != gcm.NonceSize() {
+		return nil, fmt.Errorf("Invalid nonce size, want: %s got %s", gcm.NonceSize(), len(nonce))
 	}
 
 	return gcm.Seal(nonce, nonce, plaintext, nil), nil
@@ -273,7 +304,7 @@ func (s *Drive) GetConfig() drive.Config {
 	return drive.Config{Provider: "encrypt"}
 }
 
-// Local returns true only if the configured backends is local to this machine.
+// Local returns true only if the configured backend is local to this machine.
 func (s *Drive) Local() bool {
 	return s.client.Local()
 }

@@ -70,7 +70,7 @@ func (p *catCmd) Execute(_ context.Context, f *flag.FlagSet, args ...interface{}
 	}
 	file := &shade.File{}
 	for _, sha256sum := range lfm {
-		fileJSON, err := client.GetChunk(sha256sum)
+		fileJSON, err := client.GetFile(sha256sum)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "could not get file %q: %v\n", sha256sum, err)
 			continue
@@ -84,7 +84,7 @@ func (p *catCmd) Execute(_ context.Context, f *flag.FlagSet, args ...interface{}
 			continue
 		}
 		for _, chunk := range file.Chunks {
-			c, err := client.GetChunk(chunk.Sha256)
+			c, err := client.GetChunk(chunk.Sha256, file)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "could not get chunk %v of file: %v\n", chunk.Sha256, err)
 				return subcommands.ExitFailure

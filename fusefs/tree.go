@@ -107,7 +107,7 @@ func (t *Tree) FileByNode(n Node) (*shade.File, error) {
 	if n.Synthetic() {
 		return nil, errors.New("no shade.File defined")
 	}
-	fj, err := t.client.GetChunk(n.Sha256sum)
+	fj, err := t.client.GetFile(n.Sha256sum)
 	if err != nil {
 		return nil, fmt.Errorf("GetChunk(%x): %s", n.Sha256sum, err)
 	}
@@ -209,7 +209,7 @@ func (t *Tree) Refresh() error {
 		}
 
 		// fetch the file Chunk
-		f, err := t.client.GetChunk(sha256sum)
+		f, err := t.client.GetFile(sha256sum)
 		if err != nil {
 			// TODO(asjoyner): if !client.Local()... retry?
 			log.Printf("Failed to fetch file %x: %s", sha256sum, err)

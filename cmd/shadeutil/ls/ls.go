@@ -70,7 +70,7 @@ func (p *lsCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) su
 		return subcommands.ExitFailure
 	}
 	for id, sha256sum := range lfm {
-		fileJSON, err := client.GetChunk(sha256sum)
+		fileJSON, err := client.GetFile(sha256sum)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "could not get file %q: %v\n", id, err)
 			continue

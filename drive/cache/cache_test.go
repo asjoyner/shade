@@ -93,7 +93,7 @@ func TestOnlyPersistentSatisfies(t *testing.T) {
 	if cc.PutFile([]byte("b13s"), []byte("Hope is not a strategy.")) == nil {
 		t.Fatal("failed write to only persistent drive did not fail PutFile")
 	}
-	if cc.PutChunk([]byte("b13s"), []byte("Hope is not a strategy.")) == nil {
+	if cc.PutChunk([]byte("b13s"), []byte("Hope is not a strategy."), nil) == nil {
 		t.Fatal("failed write to only persistent drive did not fail PutChunk")
 	}
 }

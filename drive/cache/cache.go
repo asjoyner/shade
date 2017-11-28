@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 )
 
@@ -72,6 +73,12 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 	return resp, nil
 }
 
+// GetFile retrieves a file with a given SHA-256 sum.  It will be returned
+// from the first client in the slice of structs that returns the chunk.
+func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
+	return s.GetChunk(sha256sum, nil)
+}
+
 // PutFile writes the metadata describing a new file.  It will be written to
 // all shade backends configured to Write.  If any backends are Persistent, it
 // returns an error if all Persistent backends fail to write.
@@ -109,11 +116,11 @@ func (s *Drive) PutFile(sha256sum, f []byte) error {
 
 // GetChunk retrieves a chunk with a given SHA-256 sum.  It will be returned
 // from the first client in the slice of structs that returns the chunk.
-func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
+func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 	// TODO(asjoyner): consider adding the ability to cancel GetChunk, then
 	// paralellize this with a slight delay between launching each request.
 	for _, client := range s.clients {
-		chunk, err := client.GetChunk(sha256sum)
+		chunk, err := client.GetChunk(sha256sum, f)
 		if err != nil {
 			continue
 		}
@@ -125,7 +132,7 @@ func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
 // PutChunk writes a chunk associated with a SHA-256 sum.  It will attempt to write to
 // all shade backends configured to Write.  If any backends are Persistent, it
 // returns an error if all Persistent backends fail to write.
-func (s *Drive) PutChunk(sha256sum []byte, chunk []byte) error {
+func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, f *shade.File) error {
 	if s.config.Write == false {
 		return errors.New("no clients configured to write")
 	}
@@ -134,7 +141,7 @@ func (s *Drive) PutChunk(sha256sum []byte, chunk []byte) error {
 	done := make(chan struct{}, len(s.clients))
 	for _, client := range s.clients {
 		go func(client drive.Client) {
-			if err := client.PutChunk(sha256sum, chunk); err != nil {
+			if err := client.PutChunk(sha256sum, chunk, f); err != nil {
 				s.log(fmt.Sprintf("%s.PutChunk(%x) failed: %s", client.GetConfig().Provider, sha256sum, err))
 				done <- struct{}{}
 				return

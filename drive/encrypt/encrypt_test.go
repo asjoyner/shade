@@ -1,11 +1,13 @@
 package encrypt
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"testing"
 
+	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 	_ "github.com/asjoyner/shade/drive/memory"
 )
@@ -44,4 +46,22 @@ func testClient() (drive.Client, error) {
 		RsaPrivateKey: x509.MarshalPKCS1PrivateKey(privkey),
 		Children:      []drive.Config{{Provider: "memory", Write: true}},
 	})
+}
+
+// This independently tests the basic primitives on which the Drive
+// implementation is built.
+func TestEncryptDecrypt(t *testing.T) {
+	plaintext := []byte("abc123")
+	key := shade.NewSymmetricKey()
+	ciphertext, err := Encrypt(plaintext, key)
+	if err != nil {
+		t.Fatalf("encrypting: %s", err)
+	}
+	response, err := Decrypt(ciphertext, key)
+	if err != nil {
+		t.Fatalf("decrypting: %s", err)
+	}
+	if !bytes.Equal(plaintext, response) {
+		t.Fatalf("want: %q, got: %q", plaintext, response)
+	}
 }

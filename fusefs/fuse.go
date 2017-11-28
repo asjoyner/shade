@@ -87,7 +87,7 @@ func (h *handle) chunkBytes(chunkNum int64, client drive.Client) ([]byte, error)
 	if !ok { // no chunk data at this offset (yet)
 		return make([]byte, 0), nil
 	}
-	cb, err := client.GetChunk(cleanChunk.Sha256)
+	cb, err := client.GetChunk(cleanChunk.Sha256, h.file)
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +389,7 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 
 	var allTheBytes []byte
 	for _, cs := range chunkSums {
-		chunk, err := sc.client.GetChunk(cs)
+		chunk, err := sc.client.GetChunk(cs, f)
 		if err != nil {
 			fuse.Debug(fmt.Sprintf("GetChunk(%x): %v", cs, err))
 			req.RespondError(fuse.EIO)
@@ -778,11 +778,12 @@ func (sc *Server) flush(hID fuse.HandleID) {
 	for cn, dirtyChunk := range h.dirty {
 		sum := shade.Sum(dirtyChunk)
 		h.file.Chunks[cn].Sha256 = sum
+		h.file.Chunks[cn].Nonce = shade.NewNonce()
 		if cn+1 == int64(len(h.file.Chunks)) {
 			h.file.LastChunksize = len(dirtyChunk)
 		}
 		for {
-			err := sc.client.PutChunk(sum, dirtyChunk)
+			err := sc.client.PutChunk(sum, dirtyChunk, h.file)
 			if err != nil {
 				fuse.Debug(fmt.Sprintf("error storing chunk with sum: %x", sum))
 				continue
