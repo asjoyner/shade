@@ -78,7 +78,7 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	}
 	child, err := drive.NewClient(c.Children[0])
 	if err != nil {
-		return nil, fmt.Errorf("initing encrypted client: %s", c.Provider, err)
+		return nil, fmt.Errorf("initing encrypted client %q: %s", c.Provider, err)
 	}
 	d.client = child
 	if child.GetConfig().Write {
@@ -268,7 +268,7 @@ func EncryptUnsafe(plaintext []byte, key *[32]byte, nonce []byte) (ciphertext []
 	}
 
 	if len(nonce) != gcm.NonceSize() {
-		return nil, fmt.Errorf("Invalid nonce size, want: %s got %s", gcm.NonceSize(), len(nonce))
+		return nil, fmt.Errorf("Invalid nonce size, want: %d got %d", gcm.NonceSize(), len(nonce))
 	}
 
 	return gcm.Seal(nonce, nonce, plaintext, nil), nil
