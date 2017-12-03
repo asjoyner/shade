@@ -40,7 +40,7 @@ import (
 )
 
 func init() {
-	drive.RegisterProvider("cache", NewClient)
+	drive.RegisterProvider("encrypt", NewClient)
 }
 
 // NewClient performs sanity checking and returns a Drive client.
@@ -49,14 +49,14 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	var err error
 	// Decode and verify RSA pub/priv keys
 	if len(c.RsaPrivateKey) > 0 {
-		key, err := x509.ParsePKCS1PrivateKey(c.RsaPrivateKey)
+		key, err := x509.ParsePKCS1PrivateKey([]byte(c.RsaPrivateKey))
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse PKCS1 encoded private key from config: %s", err)
 		}
 		d.privkey = key
 		d.pubkey = &key.PublicKey
 	} else if len(c.RsaPublicKey) > 0 {
-		pubkey, err := x509.ParsePKIXPublicKey(c.RsaPublicKey)
+		pubkey, err := x509.ParsePKIXPublicKey([]byte(c.RsaPublicKey))
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse DER encoded public key from config: %s", err)
 		}

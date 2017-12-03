@@ -43,7 +43,7 @@ func testClient() (drive.Client, error) {
 	}
 	return NewClient(drive.Config{
 		Provider:      "encrypt",
-		RsaPrivateKey: x509.MarshalPKCS1PrivateKey(privkey),
+		RsaPrivateKey: string(x509.MarshalPKCS1PrivateKey(privkey)),
 		Children:      []drive.Config{{Provider: "memory", Write: true}},
 	})
 }
