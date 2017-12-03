@@ -12,6 +12,7 @@ import (
 	// are tested below.
 	_ "github.com/asjoyner/shade/drive/amazon"
 	_ "github.com/asjoyner/shade/drive/cache"
+	_ "github.com/asjoyner/shade/drive/encrypt"
 	_ "github.com/asjoyner/shade/drive/google"
 	_ "github.com/asjoyner/shade/drive/local"
 	_ "github.com/asjoyner/shade/drive/memory"
@@ -39,7 +40,6 @@ func (t *testCase) initialize() error {
 }
 
 func TestParseConfig(t *testing.T) {
-
 	for _, tc := range []testCase{
 		{
 			name:   "zero-byte config",
@@ -119,6 +119,23 @@ func TestParseConfig(t *testing.T) {
 			configPath: "testdata/cache-holding-one-provider.config.json",
 			want: drive.Config{
 				Provider: "cache",
+				Children: []drive.Config{
+					{
+						Provider:      "memory",
+						Write:         true,
+						MaxFiles:      10000,
+						MaxChunkBytes: 50000000,
+					},
+				},
+			},
+		},
+		{
+			name:       "encrypted memory client",
+			configPath: "testdata/encrypted-memory-client.config.json",
+			want: drive.Config{
+				Provider: "encrypt",
+				// amusingly short 56bit RSA key, to make the tests easier to read
+				RsaPrivateKey: string("-----BEGIN RSA PRIVATE KEY-----\nMDkCAQACCADc5XG/z8hNAgMBAAECB0hGXla5p8ECBA+wdzECBA4UU90CBA4/9MEC\nBALlFRUCBAKTsts=\n-----END RSA PRIVATE KEY-----"),
 				Children: []drive.Config{
 					{
 						Provider:      "memory",
