@@ -146,6 +146,44 @@ func TestParseConfig(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:       "cache holding one local, one encrypted remote",
+			configPath: "testdata/cache-holding-one-local-one-encrypted-remote.config.json",
+			want: drive.Config{
+				Provider: "cache",
+				Children: []drive.Config{
+					{
+						Provider:      "local",
+						FileParentID:  "/tmp/shade/files",
+						ChunkParentID: "/tmp/shade/chunks",
+						Write:         true,
+						MaxFiles:      10000,
+						MaxChunkBytes: 50000000000,
+					},
+					{
+						Provider: "encrypt",
+						// amusingly short 56bit RSA key, to make the tests easier to read
+						RsaPrivateKey: string("-----BEGIN RSA PRIVATE KEY-----\nMDkCAQACCADc5XG/z8hNAgMBAAECB0hGXla5p8ECBA+wdzECBA4UU90CBA4/9MEC\nBALlFRUCBAKTsts=\n-----END RSA PRIVATE KEY-----"),
+						Children: []drive.Config{
+							{
+								Provider: "google",
+								OAuth: drive.OAuthConfig{
+									ClientID:     "54321",
+									ClientSecret: "edcba",
+									Scopes: []string{
+										"https://www.googleapis.com/auth/drive",
+									},
+									TokenPath: "/dev/null",
+								},
+								FileParentID:  "1",
+								ChunkParentID: "2",
+								Write:         false,
+							},
+						},
+					},
+				},
+			},
+		},
 	} {
 		if err := tc.initialize(); err != nil {
 			t.Errorf("couldn't initialize test case %q: %v", tc.name, err)
