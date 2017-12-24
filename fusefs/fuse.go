@@ -26,7 +26,10 @@ import (
 	"github.com/asjoyner/shade/drive"
 )
 
-var kernelRefresh = flag.Duration("kernel-refresh", time.Minute, "How long the kernel should cache metadata entries.")
+var (
+	kernelRefresh = flag.Duration("kernel-refresh", time.Minute, "How long the kernel should cache metadata entries.")
+	numWorkers    = flag.Int("numWorkers", 20, "The number of goroutines to service fuse requests.")
+)
 
 // DefaultChunkSizeBytes defines the default for newly created shade.File(s)
 var DefaultChunkSizeBytes = 16 * 1024 * 1024
@@ -150,6 +153,17 @@ func (h *handle) applyWrite(data []byte, offset int64, client drive.Client) erro
 
 // Serve receives and dispatches Requests from the kernel
 func (sc *Server) Serve() error {
+	// Create a pool of goroutines to handle incoming Fuse requests
+	workRequests := make(chan fuse.Request)
+	for w := 1; w <= *numWorkers; w++ {
+		go func(reqs chan fuse.Request) {
+			for req := range reqs {
+				fuse.Debug(fmt.Sprintf("%+v", req))
+				sc.serve(req)
+			}
+			return
+		}(workRequests)
+	}
 	for {
 		req, err := sc.conn.ReadRequest()
 		if err != nil {
@@ -160,13 +174,7 @@ func (sc *Server) Serve() error {
 		}
 
 		fuse.Debug(fmt.Sprintf("%+v", req))
-		// multiple goroutines seems to make Server take about 5x wall clock time
-		// to handle requests under load, as shown by TestFuseRead.
-		// jonallie points out, instantiating goroutines isn't free (not even close)
-		// plausibly toss these onto a pool as a cheap fix, consider one worker per
-		// open file handle as a more-intrusive but plausibly-faster change?
-		// go sc.serve(req)
-		sc.serve(req)
+		workRequests <- req
 	}
 	return nil
 }
