@@ -32,6 +32,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 
@@ -49,14 +50,22 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	var err error
 	// Decode and verify RSA pub/priv keys
 	if len(c.RsaPrivateKey) > 0 {
-		key, err := x509.ParsePKCS1PrivateKey([]byte(c.RsaPrivateKey))
+		b, _ := pem.Decode([]byte(c.RsaPrivateKey))
+		if b == nil {
+			return nil, fmt.Errorf("parsing PEM encoded private key from config: %s", c.RsaPrivateKey)
+		}
+		key, err := x509.ParsePKCS1PrivateKey(b.Bytes)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse PKCS1 encoded private key from config: %s", err)
+			return nil, fmt.Errorf("parsing PKCS1 private key from config: %s", err)
 		}
 		d.privkey = key
 		d.pubkey = &key.PublicKey
 	} else if len(c.RsaPublicKey) > 0 {
-		pubkey, err := x509.ParsePKIXPublicKey([]byte(c.RsaPublicKey))
+		b, _ := pem.Decode([]byte(c.RsaPublicKey))
+		if b == nil {
+			return nil, fmt.Errorf("parsing PEM encoded public key from config: %s", c.RsaPublicKey)
+		}
+		pubkey, err := x509.ParsePKIXPublicKey(b.Bytes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse DER encoded public key from config: %s", err)
 		}
@@ -191,6 +200,12 @@ func (s *Drive) PutChunk(sha256sum []byte, chunkBytes []byte, f *shade.File) err
 	if s.config.Write == false {
 		return errors.New("no clients configured to write")
 	}
+	if f == nil {
+		return errors.New("no file provided")
+	}
+	if f.AesKey == nil {
+		return errors.New("no AES encryption key for file")
+	}
 	encBytes, err := Encrypt(chunkBytes, f.AesKey)
 	if err != nil {
 		return fmt.Errorf("encrypting file: %x", sha256sum)
@@ -257,6 +272,9 @@ func Encrypt(plaintext []byte, key *[32]byte) (ciphertext []byte, err error) {
 // to specify the key AND the nonce.  Use with caution: you must not encrypt
 // two different messages with the same key and nonce!
 func EncryptUnsafe(plaintext []byte, key *[32]byte, nonce []byte) (ciphertext []byte, err error) {
+	if key == nil {
+		return nil, fmt.Errorf("No key provided!")
+	}
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, err
