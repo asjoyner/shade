@@ -1,0 +1,15 @@
+{
+	"Provider": "encrypt",
+	
+	"RsaPrivateKey": "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEAvyrbF4G/MBmFz/emMh8LKcDU9WjjHcl7H3mU/i8KWtsdPrd0\nKqs0LGvvIzwyor46iOJl5qBMGLLDeUPtBGWFmJtctcPXuKTiLa0p6c04U4TKqsM9\nXZDnWZIuMbgOB3AEwKsluD+DxN6wIthBf7+PPPfopi4Y14yQeT5ypEJwJqrUYIyJ\nDUizoDXXXuDP1BTW66ROs8SeiJ5h/Rb6RAH0HouPIuuZDQApigkCXqKOFnl6cee3\ngL+lbSEEstjwyQ1kUvIxzDs8BmxMcPD825B12tdzcUnpZtObhzBBCjqt+OVPBF+8\nPsFtIVBEGz1jRR2sfORlOt+h5TczBZQWSz3bLwIDAQABAoIBABZYvyW/UAciZKcL\n7wya3mYyGXLaoPoBbHggcU9JVm+Kf5+uOFEolD/BGkJHLjAiBpurw3ezM1ILy5fo\nXdOOvpA5URwaWaRG+f2W6XhgOf5hXoOZsRm376Nj2CyNtG4gJR4Uo6MnIZMo6PQZ\nzYZOcUMSQ8rxRowj7VuO9j3HWm7agz16ZLi4s5uETQ4ooJtr1DPT8yuA6m8DVmYc\nHaQzwrU6Q1RGzA50u6a9wqbgZIrJGqtEUQj2/Mq2w4PpqUGECMO2BslciOzzKAEv\nAuER3wNm7+fAuD2LrhNrSC5D26eKJnYzS0YsdDAZSmY/FJCDixI5jgg0eAVA4E8k\n43H1IikCgYEA+k3MKgeV64tV8VGNOcIWgERjhmAafOaX1R7iasK7mi7hafZnCaOc\niWWQSie9DsOF0kUmKaJ7nlI0eIotXtSfS9EqDlPpkleU4ymN02PfY6DyZqjlIxnB\ndBRSP4S0ws9fmc285NFmJjKXC6ggpYTOTLpbPotkpnsDb/EqvmRAP+UCgYEAw4SL\nkTWRwWypWDgcDn/8Aw7Wa2G612sY6lFOZkJOPZD/gSZuj7Q28dy2sXFwmBzc88ho\nhhs3PNCOChTIIptVUzo2MbnFLB9zXYFL+BwBqvYpglE2F7ocKHs1kboNQZAMkyaa\nxbwG47w/1kFoGcJPuNrO6kcBVx4eDmYS19Lr9YMCgYEAijosZYmK4WkxLPM8aokk\no/EghTTNa+xsLOXBY/PmZl89XKcWf9w6tiXAaTNI1L5lSJmnWZbBbc037Nlh9Ny2\nm8gG0aLFemujbU+lYvfkhcB8HPVolNnEW7ZdNXaz3GFpCib0CekZ4D5P68ANR1rw\nEq9XdFLGYqnMXCVy1XHHiYECgYBHo3A0E4nFcpgWD/EPyws+35fnHpcESWSGrqXo\nSBE887z6yGcoVmLveeyi1arowWKgHGVYBe7WZKA2x2iRbZL0/NZQn/3D7f4qW67H\nSRO/XZTWAAWu6e1ZU9PMAnzK8gn5fOKm4v8vQJGvYqXPEmh9lgbMxpmSHyHqKrJq\nzAjTGwKBgQCaVwCvUxL6DY3OKnIw3bj3syxQRZDxISFqSdt9ZvbwKkDM7ikONMBp\nEs2YQ3Q/kQ7Bbg2Qnv99WqLP/k06oHIfKQc+sjnbOuQlmbgIdO42NM2ItVz3YZy6\nHxt+f17ei/ulGZDdZfjlRmkfNxBJEmLSc5bExjYmOlfKlsdNDQfFGg==\n-----END RSA PRIVATE KEY-----",
+  "Children": [
+    {
+      "Provider": "local",
+      "FileParentID": "/tmp/shade/files",
+      "ChunkParentID": "/tmp/shade/chunks",
+      "Write": true,
+      "MaxFiles": 10000,
+      "MaxChunkBytes": 50000000000
+    }
+  ]
+}
