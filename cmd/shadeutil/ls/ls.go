@@ -12,6 +12,7 @@ import (
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/config"
+	"github.com/asjoyner/shade/drive"
 
 	"github.com/google/subcommands"
 )
@@ -44,9 +45,16 @@ func (p *lsCmd) SetFlags(f *flag.FlagSet) {
 
 func (p *lsCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	// read in the config
-	clients, err := config.Clients(p.config)
+	config, err := config.Read(p.config)
 	if err != nil {
-		fmt.Printf("could not initialize clients: %v", err)
+		fmt.Printf("could not read config: %v", err)
+		return subcommands.ExitFailure
+	}
+
+	// initialize client
+	client, err := drive.NewClient(config)
+	if err != nil {
+		fmt.Printf("could not initialize client: %s\n", err)
 		return subcommands.ExitFailure
 	}
 
@@ -56,31 +64,28 @@ func (p *lsCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) su
 	if p.long {
 		fmt.Fprint(w, "\tid\t(sha)\tsize\tchunksize\tchunks\tmtime\tfilename\n")
 	}
-	for _, client := range clients {
-		fmt.Println(client.GetConfig().Provider)
-		lfm, err := client.ListFiles()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "could not get files: %v\n", err)
-			return subcommands.ExitFailure
-		}
-		for id, sha256sum := range lfm {
-			fileJSON, err := client.GetChunk(sha256sum)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "could not get file %q: %v\n", id, err)
-				continue
-			}
-			err = json.Unmarshal(fileJSON, file)
-			if err != nil {
-				fmt.Printf("failed to unmarshal: %v\n", err)
-				continue
-			}
-			if p.long {
-				fmt.Fprintf(w, "\t%v\t(%x)\t%v\t%v\t%v\t%v\t%v\n", id, sha256sum, file.Filesize, file.Chunksize, file.Chunks, file.ModifiedTime.Format(time.Stamp), file.Filename)
-			} else {
-				fmt.Fprintf(w, "\t%v\n", file.Filename)
-			}
-		}
-		w.Flush()
+	lfm, err := client.ListFiles()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not get files: %v\n", err)
+		return subcommands.ExitFailure
 	}
+	for id, sha256sum := range lfm {
+		fileJSON, err := client.GetFile(sha256sum)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "could not get file %q: %v\n", id, err)
+			continue
+		}
+		err = json.Unmarshal(fileJSON, file)
+		if err != nil {
+			fmt.Printf("failed to unmarshal: %v\n", err)
+			continue
+		}
+		if p.long {
+			fmt.Fprintf(w, "\t%v\t(%x)\t%v\t%v\t%v\t%v\t%v\n", id, sha256sum, file.Filesize, file.Chunksize, file.Chunks, file.ModifiedTime.Format(time.Stamp), file.Filename)
+		} else {
+			fmt.Fprintf(w, "\t%v\n", file.Filename)
+		}
+	}
+	w.Flush()
 	return subcommands.ExitSuccess
 }

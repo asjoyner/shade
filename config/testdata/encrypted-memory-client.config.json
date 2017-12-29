@@ -1,0 +1,13 @@
+{
+	"Provider": "encrypt",
+	
+	"RsaPrivateKey": "-----BEGIN RSA PRIVATE KEY-----\nMDkCAQACCADc5XG/z8hNAgMBAAECB0hGXla5p8ECBA+wdzECBA4UU90CBA4/9MEC\nBALlFRUCBAKTsts=\n-----END RSA PRIVATE KEY-----",
+  "Children": [
+    {
+      "Provider": "memory",
+      "Write": true,
+      "MaxFiles": 10000,
+      "MaxChunkBytes": 50000000
+    }
+  ]
+}

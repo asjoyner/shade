@@ -11,6 +11,8 @@ import (
 	// These are imported here to register them as drive client providers, and
 	// are tested below.
 	_ "github.com/asjoyner/shade/drive/amazon"
+	_ "github.com/asjoyner/shade/drive/cache"
+	_ "github.com/asjoyner/shade/drive/encrypt"
 	_ "github.com/asjoyner/shade/drive/google"
 	_ "github.com/asjoyner/shade/drive/local"
 	_ "github.com/asjoyner/shade/drive/memory"
@@ -20,7 +22,7 @@ type testCase struct {
 	name       string
 	configPath string
 	config     []byte
-	want       []drive.Config
+	want       drive.Config
 	err        string
 }
 
@@ -38,7 +40,6 @@ func (t *testCase) initialize() error {
 }
 
 func TestParseConfig(t *testing.T) {
-
 	for _, tc := range []testCase{
 		{
 			name:   "zero-byte config",
@@ -47,8 +48,8 @@ func TestParseConfig(t *testing.T) {
 		},
 		{
 			name:   "empty config",
-			config: []byte("[]"),
-			err:    "no provider",
+			config: []byte("{}"),
+			err:    "unsupported provider",
 		},
 		{
 			name:       "bad provider",
@@ -58,66 +59,128 @@ func TestParseConfig(t *testing.T) {
 		{
 			name:       "single amazon provider",
 			configPath: "testdata/single-amazon-provider.config.json",
-			want: []drive.Config{
-				{
-					Provider: "amazon",
-					OAuth: drive.OAuthConfig{
-						ClientID:     "12345",
-						ClientSecret: "abcde",
-						Scopes: []string{
-							"clouddrive:read_other clouddrive:write",
-						},
-						TokenPath: "/dev/null",
+			want: drive.Config{
+				Provider: "amazon",
+				OAuth: drive.OAuthConfig{
+					ClientID:     "12345",
+					ClientSecret: "abcde",
+					Scopes: []string{
+						"clouddrive:read_other clouddrive:write",
 					},
-					FileParentID:  "1",
-					ChunkParentID: "2",
-					Write:         false,
+					TokenPath: "/dev/null",
 				},
+				FileParentID:  "1",
+				ChunkParentID: "2",
+				Write:         false,
 			},
 		},
 		{
 			name:       "single google provider",
 			configPath: "testdata/single-google-provider.config.json",
-			want: []drive.Config{
-				{
-					Provider: "google",
-					OAuth: drive.OAuthConfig{
-						ClientID:     "54321",
-						ClientSecret: "edcba",
-						Scopes: []string{
-							"https://www.googleapis.com/auth/drive",
-						},
-						TokenPath: "/dev/null",
+			want: drive.Config{
+				Provider: "google",
+				OAuth: drive.OAuthConfig{
+					ClientID:     "54321",
+					ClientSecret: "edcba",
+					Scopes: []string{
+						"https://www.googleapis.com/auth/drive",
 					},
-					FileParentID:  "1",
-					ChunkParentID: "2",
-					Write:         false,
+					TokenPath: "/dev/null",
 				},
+				FileParentID:  "1",
+				ChunkParentID: "2",
+				Write:         false,
 			},
 		},
 		{
 			name:       "single local provider",
 			configPath: "testdata/single-local-provider.config.json",
-			want: []drive.Config{
-				{
-					Provider:      "local",
-					FileParentID:  "/tmp/shade/files",
-					ChunkParentID: "/tmp/shade/chunks",
-					Write:         true,
-					MaxFiles:      10000,
-					MaxChunkBytes: 50000000000,
-				},
+			want: drive.Config{
+				Provider:      "local",
+				FileParentID:  "/tmp/shade/files",
+				ChunkParentID: "/tmp/shade/chunks",
+				Write:         true,
+				MaxFiles:      10000,
+				MaxChunkBytes: 50000000000,
 			},
 		},
 		{
 			name:       "single memory provider",
 			configPath: "testdata/single-memory-provider.config.json",
-			want: []drive.Config{
-				{
-					Provider:      "memory",
-					Write:         true,
-					MaxFiles:      10000,
-					MaxChunkBytes: 50000000,
+			want: drive.Config{
+				Provider:      "memory",
+				Write:         true,
+				MaxFiles:      10000,
+				MaxChunkBytes: 50000000,
+			},
+		},
+		{
+			name:       "cache holding one provider",
+			configPath: "testdata/cache-holding-one-provider.config.json",
+			want: drive.Config{
+				Provider: "cache",
+				Children: []drive.Config{
+					{
+						Provider:      "memory",
+						Write:         true,
+						MaxFiles:      10000,
+						MaxChunkBytes: 50000000,
+					},
+				},
+			},
+		},
+		{
+			name:       "encrypted memory client",
+			configPath: "testdata/encrypted-memory-client.config.json",
+			want: drive.Config{
+				Provider: "encrypt",
+				// amusingly short 56bit RSA key, to make the tests easier to read
+				RsaPrivateKey: string("-----BEGIN RSA PRIVATE KEY-----\nMDkCAQACCADc5XG/z8hNAgMBAAECB0hGXla5p8ECBA+wdzECBA4UU90CBA4/9MEC\nBALlFRUCBAKTsts=\n-----END RSA PRIVATE KEY-----"),
+				Children: []drive.Config{
+					{
+						Provider:      "memory",
+						Write:         true,
+						MaxFiles:      10000,
+						MaxChunkBytes: 50000000,
+					},
+				},
+			},
+		},
+		{
+			name:       "cache holding one local, one encrypted remote",
+			configPath: "testdata/cache-holding-one-local-one-encrypted-remote.config.json",
+			want: drive.Config{
+				Provider: "cache",
+				Children: []drive.Config{
+					{
+						Provider:      "local",
+						FileParentID:  "/tmp/shade/files",
+						ChunkParentID: "/tmp/shade/chunks",
+						Write:         true,
+						MaxFiles:      10000,
+						MaxChunkBytes: 50000000000,
+					},
+					{
+						Provider: "encrypt",
+						// amusingly short 56bit RSA key, to make the tests easier to read
+						RsaPrivateKey: string("-----BEGIN RSA PRIVATE KEY-----\nMDkCAQACCADc5XG/z8hNAgMBAAECB0hGXla5p8ECBA+wdzECBA4UU90CBA4/9MEC\nBALlFRUCBAKTsts=\n-----END RSA PRIVATE KEY-----"),
+						Children: []drive.Config{
+							{
+								Provider: "google",
+								OAuth: drive.OAuthConfig{
+									ClientID:     "54321",
+									ClientSecret: "edcba",
+									Scopes: []string{
+										"https://www.googleapis.com/auth/drive",
+									},
+									TokenPath: "/dev/null",
+								},
+								FileParentID:  "1",
+								ChunkParentID: "2",
+								Write:         false,
+							},
+						},
+					},
 				},
 			},
 		},
@@ -125,15 +188,15 @@ func TestParseConfig(t *testing.T) {
 		if err := tc.initialize(); err != nil {
 			t.Errorf("couldn't initialize test case %q: %v", tc.name, err)
 		} else {
-			configs, err := parseConfig(tc.config)
+			config, err := parseConfig(tc.config)
 			if err != nil && tc.err == "" {
 				t.Errorf("test %q wanted error %q but got %q", tc.name, tc.err, err)
 			} else if err == nil && tc.err != "" {
 				t.Errorf("test %q wanted err: %q, got err: %q", tc.name, tc.err, err)
 			} else if err != nil && tc.err != "" && !strings.Contains(err.Error(), tc.err) {
 				t.Errorf("test %q wanted err: %q, got err: %q", tc.name, tc.err, err)
-			} else if !reflect.DeepEqual(tc.want, configs) {
-				t.Errorf("test %q\nwanted: %+v\ngot: %+v", tc.name, tc.want, configs)
+			} else if !reflect.DeepEqual(tc.want, config) {
+				t.Errorf("test %q\nwanted: %+v\ngot: %+v", tc.name, tc.want, config)
 			}
 		}
 	}

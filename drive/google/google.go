@@ -9,6 +9,7 @@ import (
 
 	gdrive "google.golang.org/api/drive/v3"
 
+	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 
 	"golang.org/x/net/context"
@@ -72,6 +73,11 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 	return resp, nil
 }
 
+// GetFile retrieves a chunk with a given SHA-256 sum
+func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
+	return s.GetChunk(sha256sum, nil)
+}
+
 // PutFile writes the metadata describing a new file.
 // content should be marshalled JSON, and may be encrypted.
 func (s *Drive) PutFile(sha256sum, content []byte) error {
@@ -89,7 +95,7 @@ func (s *Drive) PutFile(sha256sum, content []byte) error {
 }
 
 // GetChunk retrieves a chunk with a given SHA-256 sum
-func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
+func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 	s.mu.RLock()
 	fileID, ok := s.files[string(sha256sum)]
 	s.mu.RUnlock()
@@ -121,7 +127,7 @@ func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
 }
 
 // PutChunk writes a chunk and returns its SHA-256 sum
-func (s *Drive) PutChunk(sha256sum, content []byte) error {
+func (s *Drive) PutChunk(sha256sum, content []byte, _ *shade.File) error {
 	s.mu.RLock()
 	_, ok := s.files[string(sha256sum)]
 	s.mu.RUnlock()

@@ -6,6 +6,7 @@ package fail
 import (
 	"errors"
 
+	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 )
 
@@ -29,18 +30,23 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 	return nil, errors.New("fail.Drive does what it says on the tin")
 }
 
+// GetFile returns an error, every time.
+func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
+	return nil, errors.New("fail.Drive does what it says on the tin")
+}
+
 // PutFile returns an error, every time.
 func (s *Drive) PutFile(sha256sum, f []byte) error {
 	return errors.New("fail.Drive does what it says on the tin")
 }
 
 // GetChunk returns an error, every time.
-func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
+func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 	return nil, errors.New("fail.Drive does what it says on the tin")
 }
 
 // PutChunk returns an error, every time.
-func (s *Drive) PutChunk(sha256sum []byte, chunk []byte) error {
+func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, f *shade.File) error {
 	return errors.New("fail.Drive does what it says on the tin")
 }
 

@@ -7,13 +7,16 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/config"
+	"github.com/asjoyner/shade/drive"
 
 	_ "github.com/asjoyner/shade/drive/amazon"
+	_ "github.com/asjoyner/shade/drive/cache"
 	_ "github.com/asjoyner/shade/drive/google"
 	_ "github.com/asjoyner/shade/drive/local"
 	_ "github.com/asjoyner/shade/drive/memory"
@@ -39,10 +42,16 @@ func main() {
 	}
 
 	// read in the config
-	clients, err := config.Clients(*configPath)
+	config, err := config.Read(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not initialize clients: %s\n", err)
 		os.Exit(1)
+	}
+
+	// initialize client
+	client, err := drive.NewClient(config)
+	if err != nil {
+		log.Fatalf("could not initialize client: %s\n", err)
 	}
 
 	filename := flag.Arg(0)
@@ -59,7 +68,7 @@ func main() {
 		os.Exit(3)
 	}
 
-	chunk := shade.Chunk{}
+	chunk := shade.NewChunk()
 	chunkbytes := make([]byte, *chunksize)
 	for {
 		// Read a chunk
@@ -82,16 +91,14 @@ func main() {
 		a := sha256.Sum256(chunkbytes)
 		chunk.Sha256 = a[:]
 
+		manifest.Chunks = append(manifest.Chunks, chunk)
+
 		// upload the chunk
-		for _, c := range clients {
-			err := c.PutChunk(chunk.Sha256, chunkbytes)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "chunk upload failed: %s\n", err)
-				os.Exit(1)
-			}
+		if err := client.PutChunk(chunk.Sha256, chunkbytes, &manifest); err != nil {
+			fmt.Fprintf(os.Stderr, "chunk upload failed: %s\n", err)
+			os.Exit(1)
 		}
 
-		manifest.Chunks = append(manifest.Chunks, chunk)
 		chunk.Index++
 	}
 
@@ -102,12 +109,9 @@ func main() {
 	}
 	// TODO(asjoyner): optionally, encrypt the manifest
 	// upload the manifest
-	for _, c := range clients {
-		a := sha256.Sum256(jm)
-		err := c.PutFile(a[:], jm)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "manifest upload failed: %s\n", err)
-			os.Exit(1)
-		}
+	a := sha256.Sum256(jm)
+	if err := client.PutFile(a[:], jm); err != nil {
+		fmt.Fprintf(os.Stderr, "manifest upload failed: %s\n", err)
+		os.Exit(1)
 	}
 }

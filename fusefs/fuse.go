@@ -26,7 +26,10 @@ import (
 	"github.com/asjoyner/shade/drive"
 )
 
-var kernelRefresh = flag.Duration("kernel-refresh", time.Minute, "How long the kernel should cache metadata entries.")
+var (
+	kernelRefresh = flag.Duration("kernel-refresh", time.Minute, "How long the kernel should cache metadata entries.")
+	numWorkers    = flag.Int("numWorkers", 20, "The number of goroutines to service fuse requests.")
+)
 
 // DefaultChunkSizeBytes defines the default for newly created shade.File(s)
 var DefaultChunkSizeBytes = 16 * 1024 * 1024
@@ -87,7 +90,7 @@ func (h *handle) chunkBytes(chunkNum int64, client drive.Client) ([]byte, error)
 	if !ok { // no chunk data at this offset (yet)
 		return make([]byte, 0), nil
 	}
-	cb, err := client.GetChunk(cleanChunk.Sha256)
+	cb, err := client.GetChunk(cleanChunk.Sha256, h.file)
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +153,17 @@ func (h *handle) applyWrite(data []byte, offset int64, client drive.Client) erro
 
 // Serve receives and dispatches Requests from the kernel
 func (sc *Server) Serve() error {
+	// Create a pool of goroutines to handle incoming Fuse requests
+	workRequests := make(chan fuse.Request)
+	for w := 1; w <= *numWorkers; w++ {
+		go func(reqs chan fuse.Request) {
+			for req := range reqs {
+				fuse.Debug(fmt.Sprintf("%+v", req))
+				sc.serve(req)
+			}
+			return
+		}(workRequests)
+	}
 	for {
 		req, err := sc.conn.ReadRequest()
 		if err != nil {
@@ -160,13 +174,7 @@ func (sc *Server) Serve() error {
 		}
 
 		fuse.Debug(fmt.Sprintf("%+v", req))
-		// multiple goroutines seems to make Server take about 5x wall clock time
-		// to handle requests under load, as shown by TestFuseRead.
-		// jonallie points out, instantiating goroutines isn't free (not even close)
-		// plausibly toss these onto a pool as a cheap fix, consider one worker per
-		// open file handle as a more-intrusive but plausibly-faster change?
-		// go sc.serve(req)
-		sc.serve(req)
+		workRequests <- req
 	}
 	return nil
 }
@@ -389,7 +397,7 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 
 	var allTheBytes []byte
 	for _, cs := range chunkSums {
-		chunk, err := sc.client.GetChunk(cs)
+		chunk, err := sc.client.GetChunk(cs, f)
 		if err != nil {
 			fuse.Debug(fmt.Sprintf("GetChunk(%x): %v", cs, err))
 			req.RespondError(fuse.EIO)
@@ -527,14 +535,11 @@ func (sc *Server) create(req *fuse.CreateRequest) {
 	fn := path.Join(pn.Filename, req.Name)
 	n := sc.tree.Create(fn)
 	inode := sc.inode.FromPath(fn)
+	// create file object
+	file := shade.NewFile()
+	file.Filename = fn
 	// create handle
-	hID := sc.allocHandle(
-		fuse.NodeID(inode),
-		&shade.File{
-			Filename:  fn,
-			Chunksize: DefaultChunkSizeBytes,
-		},
-	)
+	hID := sc.allocHandle(fuse.NodeID(inode), file)
 
 	// Respond to tell the fuse kernel module about the file
 	resp := fuse.CreateResponse{
@@ -600,12 +605,9 @@ func (sc *Server) remove(req *fuse.RemoveRequest) {
 	}
 	filename := strings.TrimPrefix(path.Join(parentdir, req.Name), "/")
 	// create Deleted File
-	f := &shade.File{
-		Filename:     filename,
-		Chunksize:    DefaultChunkSizeBytes,
-		ModifiedTime: time.Now(),
-		Deleted:      true,
-	}
+	f := shade.NewFile()
+	f.Filename = filename
+	f.Deleted = true
 	node := Node{
 		Filename:     f.Filename,
 		ModifiedTime: f.ModifiedTime,
@@ -635,7 +637,7 @@ func (sc *Server) remove(req *fuse.RemoveRequest) {
 		for {
 			err := sc.client.PutFile(sum, jm)
 			if err != nil {
-				fuse.Debug(fmt.Sprintf("error storing file %s with sum: %x", filename, sum))
+				fuse.Debug(fmt.Sprintf("error storing deleted file %s with sum: %x: %s", filename, sum, err))
 				continue
 			}
 			fuse.Debug(fmt.Sprintf("stored file %s with sum: %x", filename, sum))
@@ -778,13 +780,15 @@ func (sc *Server) flush(hID fuse.HandleID) {
 	for cn, dirtyChunk := range h.dirty {
 		sum := shade.Sum(dirtyChunk)
 		h.file.Chunks[cn].Sha256 = sum
+		h.file.Chunks[cn].Nonce = shade.NewNonce()
 		if cn+1 == int64(len(h.file.Chunks)) {
 			h.file.LastChunksize = len(dirtyChunk)
 		}
 		for {
-			err := sc.client.PutChunk(sum, dirtyChunk)
+			err := sc.client.PutChunk(sum, dirtyChunk, h.file)
 			if err != nil {
-				fuse.Debug(fmt.Sprintf("error storing chunk with sum: %x", sum))
+				fuse.Debug(fmt.Sprintf("error storing chunk with sum: %x: %s", sum, err))
+				// TODO(asjoyner): exponential backoff?  retry limit?
 				continue
 			}
 			fuse.Debug(fmt.Sprintf("stored chunk with sum: %x", sum))
@@ -803,7 +807,7 @@ func (sc *Server) flush(hID fuse.HandleID) {
 	for {
 		err := sc.client.PutFile(sum, jm)
 		if err != nil {
-			fuse.Debug(fmt.Sprintf("error storing file %s with sum: %x", h.file.Filename, sum))
+			fuse.Debug(fmt.Sprintf("error storing file %s with sum: %x: %s", h.file.Filename, sum, err))
 			continue
 		}
 		fuse.Debug(fmt.Sprintf("stored file %s with sum: %x", h.file.Filename, sum))

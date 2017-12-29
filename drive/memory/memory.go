@@ -7,6 +7,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 )
 
@@ -36,11 +37,16 @@ type Drive struct {
 
 // ListFiles retrieves all of the File objects known to the client.  The return
 // is a list of sha256sums of the file object.  The keys may be passed to
-// GetChunk() to retrieve the corresponding shade.File.
+// GetFile() to retrieve the corresponding shade.File.
 func (s *Drive) ListFiles() ([][]byte, error) {
 	s.fm.RLock()
 	defer s.fm.RUnlock()
 	return s.files, nil
+}
+
+// GetFile retrieves a file with a given SHA-256 sum
+func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
+	return s.GetChunk(sha256sum, nil)
 }
 
 // PutFile writes the metadata describing a new file.
@@ -56,7 +62,7 @@ func (s *Drive) PutFile(sha256sum, f []byte) error {
 }
 
 // GetChunk retrieves a chunk with a given SHA-256 sum
-func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
+func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 	s.cm.RLock()
 	defer s.cm.RUnlock()
 	if chunk, ok := s.chunks[string(sha256sum)]; ok {
@@ -69,7 +75,7 @@ func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
 }
 
 // PutChunk writes a chunk and returns its SHA-256 sum
-func (s *Drive) PutChunk(sha256sum []byte, chunk []byte) error {
+func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, _ *shade.File) error {
 	s.cm.Lock()
 	defer s.cm.Unlock()
 	s.chunks[string(sha256sum)] = chunk

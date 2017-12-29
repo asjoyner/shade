@@ -18,7 +18,8 @@ import (
 	"github.com/asjoyner/shade/fusefs"
 
 	_ "github.com/asjoyner/shade/drive/amazon"
-	"github.com/asjoyner/shade/drive/cache"
+	_ "github.com/asjoyner/shade/drive/cache"
+	_ "github.com/asjoyner/shade/drive/encrypt"
 	_ "github.com/asjoyner/shade/drive/google"
 	_ "github.com/asjoyner/shade/drive/local"
 	_ "github.com/asjoyner/shade/drive/memory"
@@ -44,19 +45,21 @@ func main() {
 	}
 
 	// read in the config
-	clients, err := config.Clients(*configFile)
+	config, err := config.Read(*configFile)
 	if err != nil {
-		log.Fatalf("could not initialize clients: %s\n", err)
+		log.Fatalf("could not read configuration: %s\n", err)
 	}
 
-	// initialize cache with clients
-	cacheClient, err := cache.NewClient(clients)
+	// initialize client
+	client, err := drive.NewClient(config)
 	if err != nil {
-		log.Fatalf("could not initialize cache client: %s\n", err)
+		log.Fatalf("could not initialize client: %s\n", err)
 	}
-	if *cacheDebug {
-		cacheClient.Debug()
-	}
+	/*
+		if *cacheDebug {
+			cacheClient.Debug()
+		}
+	*/
 
 	// Setup fuse FS
 	conn, err := mountFuse(flag.Arg(0))
@@ -65,7 +68,7 @@ func main() {
 	}
 	fmt.Printf("Mounting Shade FuseFS at %s...\n", flag.Arg(0))
 
-	if err := serviceFuse(conn, cacheClient); err != nil {
+	if err := serviceFuse(conn, client); err != nil {
 		log.Fatalf("failed to service mount: %s", err)
 	}
 
@@ -119,9 +122,9 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 // serviceFuse initializes fusefs, the shade implementation of a fuse file
 // server, and services requests from the fuse kernel filesystem until it is
 // unmounted.
-func serviceFuse(conn *fuse.Conn, cacheClient drive.Client) error {
+func serviceFuse(conn *fuse.Conn, client drive.Client) error {
 	refresh := time.NewTicker(5 * time.Minute)
-	ffs, err := fusefs.New(cacheClient, conn, refresh)
+	ffs, err := fusefs.New(client, conn, refresh)
 	if err != nil {
 		return fmt.Errorf("fuse server initialization failed: %s", err)
 	}

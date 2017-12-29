@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 	"github.com/google/btree"
 )
@@ -138,6 +139,11 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 	return resp, nil
 }
 
+// GetFile retrieves a chunk with a given SHA-256 sum
+func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
+	return s.GetChunk(sha256sum, nil)
+}
+
 // PutFile writes the metadata describing a new file.
 // f should be marshalled JSON, and may be encrypted.
 //
@@ -185,7 +191,7 @@ func (s *Drive) PutFile(sha256sum, data []byte) error {
 }
 
 // GetChunk retrieves a chunk with a given SHA-256 sum
-func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
+func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 	s.RLock()
 	defer s.RUnlock()
 	paths := []string{s.config.FileParentID, s.config.ChunkParentID}
@@ -199,7 +205,7 @@ func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
 }
 
 // PutChunk writes a chunk to local disk
-func (s *Drive) PutChunk(sha256sum []byte, data []byte) error {
+func (s *Drive) PutChunk(sha256sum []byte, data []byte, f *shade.File) error {
 	s.Lock()
 	defer s.Unlock()
 

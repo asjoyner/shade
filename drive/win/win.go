@@ -4,7 +4,10 @@
 // client, or not.
 package win
 
-import "github.com/asjoyner/shade/drive"
+import (
+	"github.com/asjoyner/shade"
+	"github.com/asjoyner/shade/drive"
+)
 
 func init() {
 	drive.RegisterProvider("win", NewClient)
@@ -27,18 +30,23 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 	return nil, nil
 }
 
+// GetFile returns no data, no error, every time.
+func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
+	return nil, nil
+}
+
 // PutFile returns success, every time.
 func (s *Drive) PutFile(sha256sum, f []byte) error {
 	return nil
 }
 
 // GetChunk returns no data, no error, every time.
-func (s *Drive) GetChunk(sha256sum []byte) ([]byte, error) {
+func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 	return nil, nil
 }
 
 // PutChunk returns success, every time.
-func (s *Drive) PutChunk(sha256sum []byte, chunk []byte) error {
+func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, f *shade.File) error {
 	return nil
 }
 
