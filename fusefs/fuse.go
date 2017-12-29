@@ -535,14 +535,11 @@ func (sc *Server) create(req *fuse.CreateRequest) {
 	fn := path.Join(pn.Filename, req.Name)
 	n := sc.tree.Create(fn)
 	inode := sc.inode.FromPath(fn)
+	// create file object
+	file := shade.NewFile()
+	file.Filename = fn
 	// create handle
-	hID := sc.allocHandle(
-		fuse.NodeID(inode),
-		&shade.File{
-			Filename:  fn,
-			Chunksize: DefaultChunkSizeBytes,
-		},
-	)
+	hID := sc.allocHandle(fuse.NodeID(inode), file)
 
 	// Respond to tell the fuse kernel module about the file
 	resp := fuse.CreateResponse{
@@ -608,12 +605,9 @@ func (sc *Server) remove(req *fuse.RemoveRequest) {
 	}
 	filename := strings.TrimPrefix(path.Join(parentdir, req.Name), "/")
 	// create Deleted File
-	f := &shade.File{
-		Filename:     filename,
-		Chunksize:    DefaultChunkSizeBytes,
-		ModifiedTime: time.Now(),
-		Deleted:      true,
-	}
+	f := shade.NewFile()
+	f.Filename = filename
+	f.Deleted = true
 	node := Node{
 		Filename:     f.Filename,
 		ModifiedTime: f.ModifiedTime,
@@ -643,7 +637,7 @@ func (sc *Server) remove(req *fuse.RemoveRequest) {
 		for {
 			err := sc.client.PutFile(sum, jm)
 			if err != nil {
-				fuse.Debug(fmt.Sprintf("error storing file %s with sum: %x", filename, sum))
+				fuse.Debug(fmt.Sprintf("error storing deleted file %s with sum: %x: %s", filename, sum, err))
 				continue
 			}
 			fuse.Debug(fmt.Sprintf("stored file %s with sum: %x", filename, sum))
@@ -793,7 +787,8 @@ func (sc *Server) flush(hID fuse.HandleID) {
 		for {
 			err := sc.client.PutChunk(sum, dirtyChunk, h.file)
 			if err != nil {
-				fuse.Debug(fmt.Sprintf("error storing chunk with sum: %x", sum))
+				fuse.Debug(fmt.Sprintf("error storing chunk with sum: %x: %s", sum, err))
+				// TODO(asjoyner): exponential backoff?  retry limit?
 				continue
 			}
 			fuse.Debug(fmt.Sprintf("stored chunk with sum: %x", sum))
@@ -812,7 +807,7 @@ func (sc *Server) flush(hID fuse.HandleID) {
 	for {
 		err := sc.client.PutFile(sum, jm)
 		if err != nil {
-			fuse.Debug(fmt.Sprintf("error storing file %s with sum: %x", h.file.Filename, sum))
+			fuse.Debug(fmt.Sprintf("error storing file %s with sum: %x: %s", h.file.Filename, sum, err))
 			continue
 		}
 		fuse.Debug(fmt.Sprintf("stored file %s with sum: %x", h.file.Filename, sum))
