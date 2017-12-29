@@ -11,6 +11,7 @@ import (
 
 	// Subcommand imports
 	_ "github.com/asjoyner/shade/cmd/shadeutil/cat"
+	_ "github.com/asjoyner/shade/cmd/shadeutil/genkeys"
 	_ "github.com/asjoyner/shade/cmd/shadeutil/ls"
 
 	// Drive client provider imports
