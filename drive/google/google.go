@@ -85,6 +85,9 @@ func (s *Drive) PutFile(sha256sum, content []byte) error {
 		Name:          hex.EncodeToString(sha256sum),
 		AppProperties: map[string]string{"shadeType": "metadata"},
 	}
+	if s.config.FileParentID != "" {
+		f.AppProperties["parents"] = s.config.FileParentID
+	}
 
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
 	br := bytes.NewReader(content)
