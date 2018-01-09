@@ -25,9 +25,7 @@ import (
 
 var (
 	defaultConfig = path.Join(shade.ConfigDir(), "config.json")
-
-	chunksize  = flag.Int("chunksize", 16*1024*1024, "size of a chunk, in bytes")
-	configPath = flag.String("config", defaultConfig, "shade config file")
+	configPath    = flag.String("config", defaultConfig, "shade config file")
 )
 
 func main() {
@@ -57,11 +55,7 @@ func main() {
 
 	filename := flag.Arg(0)
 
-	manifest := shade.File{
-		Filename:  flag.Arg(1),
-		Chunksize: *chunksize,
-	}
-	// TODO(asjoyner): generate AES key
+	manifest := shade.NewFile(flag.Arg(1))
 
 	fh, err := os.Open(filename)
 	if err != nil {
@@ -70,7 +64,7 @@ func main() {
 	}
 
 	chunk := shade.NewChunk()
-	chunkbytes := make([]byte, *chunksize)
+	chunkbytes := make([]byte, manifest.Chunksize)
 	for {
 		// Read a chunk
 		len, err := fh.Read(chunkbytes)
@@ -83,19 +77,18 @@ func main() {
 		manifest.Filesize += int64(len)
 
 		// truncate the chunkbytes array on the last read
-		if len < *chunksize {
+		if len < manifest.Chunksize {
 			chunkbytes = chunkbytes[:len]
 			manifest.LastChunksize = len
 		}
 
-		// TODO(asjoyner): optionally, encrypt bytes
 		a := sha256.Sum256(chunkbytes)
 		chunk.Sha256 = a[:]
 
 		manifest.Chunks = append(manifest.Chunks, chunk)
 
 		// upload the chunk
-		if err := client.PutChunk(chunk.Sha256, chunkbytes, &manifest); err != nil {
+		if err := client.PutChunk(chunk.Sha256, chunkbytes, manifest); err != nil {
 			fmt.Fprintf(os.Stderr, "chunk upload failed: %s\n", err)
 			os.Exit(1)
 		}
@@ -108,7 +101,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "could not marshal file manifest: %s\n", err)
 		os.Exit(1)
 	}
-	// TODO(asjoyner): optionally, encrypt the manifest
 	// upload the manifest
 	a := sha256.Sum256(jm)
 	if err := client.PutFile(a[:], jm); err != nil {

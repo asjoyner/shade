@@ -3,9 +3,14 @@ package shade
 import (
 	"crypto/rand"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"time"
+)
+
+var (
+	chunksize = flag.Int("chunksize", 16*1024*1024, "size of a chunk, in bytes")
 )
 
 // File represents the metadata of a file stored in Shade.  It is stored and
@@ -40,10 +45,11 @@ type File struct {
 	AesKey *[32]byte
 }
 
-func NewFile() *File {
+func NewFile(filename string) *File {
 	return &File{
+		Filename:     filename,
 		ModifiedTime: time.Now(),
-		Chunksize:    16 * 1024 * 1024,
+		Chunksize:    *chunksize,
 		AesKey:       NewSymmetricKey(),
 	}
 }

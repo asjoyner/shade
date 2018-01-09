@@ -101,7 +101,7 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 	testChunks := randChunk(uint64(numChunks))
 
 	// Make a file out of the chunks
-	file := shade.NewFile()
+	file := shade.NewFile("testfile")
 	i := 0
 	for sum, _ := range testChunks {
 		chunk := shade.NewChunk()

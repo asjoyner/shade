@@ -536,8 +536,7 @@ func (sc *Server) create(req *fuse.CreateRequest) {
 	n := sc.tree.Create(fn)
 	inode := sc.inode.FromPath(fn)
 	// create file object
-	file := shade.NewFile()
-	file.Filename = fn
+	file := shade.NewFile(fn)
 	// create handle
 	hID := sc.allocHandle(fuse.NodeID(inode), file)
 
@@ -605,8 +604,7 @@ func (sc *Server) remove(req *fuse.RemoveRequest) {
 	}
 	filename := strings.TrimPrefix(path.Join(parentdir, req.Name), "/")
 	// create Deleted File
-	f := shade.NewFile()
-	f.Filename = filename
+	f := shade.NewFile(filename)
 	f.Deleted = true
 	node := Node{
 		Filename:     f.Filename,
