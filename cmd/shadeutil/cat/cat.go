@@ -77,7 +77,7 @@ func (p *catCmd) Execute(_ context.Context, f *flag.FlagSet, args ...interface{}
 		for _, chunk := range file.Chunks {
 			c, err := client.GetChunk(chunk.Sha256, file)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "could not get chunk %v of file: %v\n", chunk.Sha256, err)
+				fmt.Fprintf(os.Stderr, "could not get chunk %x of file: %v\n", chunk.Sha256, err)
 				return subcommands.ExitFailure
 			}
 			if _, err := os.Stdout.Write(c); err != nil {
