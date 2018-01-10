@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/config"
@@ -19,13 +18,8 @@ func init() {
 	subcommands.Register(&catCmd{}, "")
 }
 
-var (
-	defaultConfig = path.Join(shade.ConfigDir(), "config.json")
-)
-
 type catCmd struct {
-	long   bool
-	config string
+	long bool
 }
 
 func (*catCmd) Name() string     { return "cat" }
@@ -35,22 +29,19 @@ func (*catCmd) Usage() string {
   Print the named file to STDOUT.
 `
 }
-
-func (p *catCmd) SetFlags(f *flag.FlagSet) {
-	f.StringVar(&p.config, "f", defaultConfig, "Path to shade config")
-}
+func (*catCmd) SetFlags(f *flag.FlagSet) { return }
 
 func (p *catCmd) Execute(_ context.Context, f *flag.FlagSet, args ...interface{}) subcommands.ExitStatus {
 	// parse the filename
-	argv := args[0].([]string)
-	if len(argv) != 2 {
-		fmt.Printf("unexpected number of arguments to cat; want: 1, got: %d\n", len(argv)-1)
+	configPath := args[0].(*string)
+	if f.NArg() != 1 {
+		fmt.Printf("unexpected number of arguments to cat; want: 1, got: %d\n", f.NArg())
 		return subcommands.ExitFailure
 	}
-	filename := argv[1]
+	filename := f.Arg(0)
 
 	// read in the config
-	config, err := config.Read(p.config)
+	config, err := config.Read(*configPath)
 	if err != nil {
 		fmt.Printf("could not read config: %v", err)
 		return subcommands.ExitFailure

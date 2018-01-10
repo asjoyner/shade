@@ -43,9 +43,10 @@ func (p *lsCmd) SetFlags(f *flag.FlagSet) {
 	f.StringVar(&p.config, "f", defaultConfig, "Path to shade config")
 }
 
-func (p *lsCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
+func (p *lsCmd) Execute(_ context.Context, f *flag.FlagSet, args ...interface{}) subcommands.ExitStatus {
 	// read in the config
-	config, err := config.Read(p.config)
+	configPath := args[0].(*string)
+	config, err := config.Read(*configPath)
 	if err != nil {
 		fmt.Printf("could not read config: %v", err)
 		return subcommands.ExitFailure
