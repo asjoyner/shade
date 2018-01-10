@@ -15,10 +15,6 @@ import (
 	"golang.org/x/net/context"
 )
 
-// listFilesQuery is a Google Drive API query string which will return all
-// shade metadata files.
-const listFilesQuery = "appProperties has { key='shadeType' and value='metadata' }"
-
 func init() {
 	drive.RegisterProvider("google", NewClient)
 }
@@ -51,7 +47,13 @@ type Drive struct {
 // GetChunk() to retrieve the corresponding shade.File.
 func (s *Drive) ListFiles() ([][]byte, error) {
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
-	r, err := s.service.Files.List().Context(ctx).Q(listFilesQuery).Fields("files(id, name)").Do()
+	// this query is a Google Drive API query string which will return all
+	// shade metadata files, optionally restricted to a FileParentID
+	q := "appProperties has { key='shadeType' and value='file' }"
+	if s.config.FileParentID != "" {
+		q = fmt.Sprintf("%s and '%s' in parents", q, s.config.FileParentID)
+	}
+	r, err := s.service.Files.List().Context(ctx).Q(q).Fields("files(id, name)").Do()
 	if err != nil {
 		return nil, fmt.Errorf("couldn't retrieve files: %v", err)
 	}
@@ -83,10 +85,10 @@ func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
 func (s *Drive) PutFile(sha256sum, content []byte) error {
 	f := &gdrive.File{
 		Name:          hex.EncodeToString(sha256sum),
-		AppProperties: map[string]string{"shadeType": "metadata"},
+		AppProperties: map[string]string{"shadeType": "file"},
 	}
 	if s.config.FileParentID != "" {
-		f.AppProperties["parents"] = s.config.FileParentID
+		f.Parents = []string{s.config.FileParentID}
 	}
 
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
@@ -106,12 +108,16 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 	filename := hex.EncodeToString(sha256sum)
 	if !ok {
 		ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
-		r, err := s.service.Files.List().Context(ctx).Q(fmt.Sprintf("name = '%s'", filename)).Fields("files(id, name)").Do()
+		q := fmt.Sprintf("name = '%s'", filename)
+		if s.config.FileParentID != "" {
+			q = fmt.Sprintf("%s and ('%s' in parents OR '%s' in parents)", q, s.config.FileParentID, s.config.ChunkParentID)
+		}
+		r, err := s.service.Files.List().Context(ctx).Q(q).Fields("files(id, name)").Do()
 		if err != nil {
 			return nil, fmt.Errorf("couldn't get metadata for chunk %v: %v", filename, err)
 		}
-		if len(r.Files) != 0 {
-			return nil, fmt.Errorf("got non-unique chunk result for chunk %v", filename)
+		if len(r.Files) != 1 {
+			return nil, fmt.Errorf("got non-unique chunk result for chunk %v: %#v", filename, r.Files)
 		}
 		fileID = r.Files[0].Id
 	}
@@ -142,7 +148,7 @@ func (s *Drive) PutChunk(sha256sum, content []byte, _ *shade.File) error {
 		AppProperties: map[string]string{"shadeType": "chunk"},
 	}
 	if s.config.ChunkParentID != "" {
-		f.AppProperties["parents"] = s.config.ChunkParentID
+		f.Parents = []string{s.config.ChunkParentID}
 	}
 
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
