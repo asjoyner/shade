@@ -47,8 +47,9 @@ type Drive struct {
 // GetChunk() to retrieve the corresponding shade.File.
 func (s *Drive) ListFiles() ([][]byte, error) {
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
-	// this query is a Google Drive API query string which will return all
-	// shade metadata files, optionally restricted to a FileParentID
+	// This query is a Google Drive API query string which will return all
+	// shade metadata files. If FileParentID is specified, the query is restricted
+	// there and space "drive" is used; otherwise, space "appDataFolder" is used.
 	q := "appProperties has { key='shadeType' and value='file' }"
 	spaces := "appDataFolder"
 	if s.config.FileParentID != "" {
@@ -149,7 +150,6 @@ func (s *Drive) PutChunk(sha256sum, content []byte, _ *shade.File) error {
 	if ok {
 		return nil // we know this chunk already exists
 	}
-	// A chunk file is always parented to the appDataFolder
 	f := &gdrive.File{
 		Name:          hex.EncodeToString(sha256sum),
 		AppProperties: map[string]string{"shadeType": "chunk"},
