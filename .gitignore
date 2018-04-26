@@ -30,3 +30,6 @@ _testmain.go
 cmd/shade/shade
 cmd/shadeutil/shadeutil
 cmd/throw/throw
+
+# A spot to keep local data inside the workspace.
+localdata/*

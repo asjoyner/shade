@@ -50,10 +50,12 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 	// this query is a Google Drive API query string which will return all
 	// shade metadata files, optionally restricted to a FileParentID
 	q := "appProperties has { key='shadeType' and value='file' }"
+	spaces := "appDataFolder"
 	if s.config.FileParentID != "" {
 		q = fmt.Sprintf("%s and '%s' in parents", q, s.config.FileParentID)
+		spaces = "drive"
 	}
-	r, err := s.service.Files.List().Context(ctx).Q(q).Fields("files(id, name)").Do()
+	r, err := s.service.Files.List().Spaces(spaces).Context(ctx).Q(q).Fields("files(id, name)").Do()
 	if err != nil {
 		return nil, fmt.Errorf("couldn't retrieve files: %v", err)
 	}
@@ -89,6 +91,8 @@ func (s *Drive) PutFile(sha256sum, content []byte) error {
 	}
 	if s.config.FileParentID != "" {
 		f.Parents = []string{s.config.FileParentID}
+	} else {
+		f.Parents = []string{"appDataFolder"}
 	}
 
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
@@ -109,10 +113,12 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 	if !ok {
 		ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
 		q := fmt.Sprintf("name = '%s'", filename)
-		if s.config.FileParentID != "" {
-			q = fmt.Sprintf("%s and ('%s' in parents OR '%s' in parents)", q, s.config.FileParentID, s.config.ChunkParentID)
+		spaces := "appDataFolder"
+		if s.config.ChunkParentID != "" {
+			q = fmt.Sprintf("%s and '%s' in parents", q, s.config.ChunkParentID)
+			spaces = "drive"
 		}
-		r, err := s.service.Files.List().Context(ctx).Q(q).Fields("files(id, name)").Do()
+		r, err := s.service.Files.List().Spaces(spaces).Context(ctx).Q(q).Fields("files(id, name)").Do()
 		if err != nil {
 			return nil, fmt.Errorf("couldn't get metadata for chunk %v: %v", filename, err)
 		}
@@ -143,12 +149,15 @@ func (s *Drive) PutChunk(sha256sum, content []byte, _ *shade.File) error {
 	if ok {
 		return nil // we know this chunk already exists
 	}
+	// A chunk file is always parented to the appDataFolder
 	f := &gdrive.File{
 		Name:          hex.EncodeToString(sha256sum),
 		AppProperties: map[string]string{"shadeType": "chunk"},
 	}
 	if s.config.ChunkParentID != "" {
 		f.Parents = []string{s.config.ChunkParentID}
+	} else {
+		f.Parents = []string{"appDataFolder"}
 	}
 
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
