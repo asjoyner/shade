@@ -1,0 +1,34 @@
+{"Provider": "cache",
+  "Children": [
+    {"Provider": "cache",
+     "Children": [
+       {"Provider": "memory",
+				"Write": true,
+				"MaxFiles": 10000,
+				"MaxChunkBytes": 1000000000
+			 },
+       {"Provider": "local",
+        "Write": true,
+				"MaxFiles": 100000,
+				"MaxChunkBytes": 50000000000,
+        "FileParentID": "/tmp/shade/files",
+        "ChunkParentID": "/tmp/shade/chunks"}
+     ]
+    },
+    {"Provider": "encrypt",
+      "RsaPrivateKey": "-----BEGIN RSA PRIVATE KEY-----\nMDkCAQACCADc5XG/z8hNAgMBAAECB0hGXla5p8ECBA+wdzECBA4UU90CBA4/9MEC\nBALlFRUCBAKTsts=\n-----END RSA PRIVATE KEY-----",
+     "Children": [
+       {"Provider": "google",
+				"OAuth": {
+				  "ClientID": "12345",
+				  "ClientSecret": "abcde",
+				  "Scopes": ["https://www.googleapis.com/auth/drive.file"],
+				  "TokenPath": "/tmp/throwaway"
+				},
+        "Write": true,
+        "FileParentID": "1abcdefghjiklmnopqurstuvwxyz23456",
+        "ChunkParentID": "12345667890klmnopqurstuvwxyz23456"}
+     ]
+    }
+  ]
+}
