@@ -1,3 +1,9 @@
+/* Package config reads and parses a JSON config which must represent a single
+* Drive object.
+
+See the testdata/ subdirectory for example configurations.
+*/
+
 package config
 
 import (
