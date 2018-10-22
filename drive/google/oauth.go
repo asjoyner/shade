@@ -25,7 +25,13 @@ const (
 	redirectURI  = "https://localhost"
 )
 
-var scope = []string{gdrive.DriveAppdataScope, gdrive.DriveFileScope}
+var (
+	// scope defaults to requesting r/w access to all Files, Folders, and AppData
+	scope = []string{gdrive.DriveAppdataScope, gdrive.DriveFileScope}
+	// tokenPath defaults to "google.token" in the config dir, but can be
+	// overridden by configuring OAuth.TokenPath
+	tokenPath = filepath.Join(shade.ConfigDir(), "google.token")
+)
 
 func getOAuthClient(c drive.Config) *http.Client {
 	conf := &oauth2.Config{
@@ -44,15 +50,20 @@ func getOAuthClient(c drive.Config) *http.Client {
 	if c.OAuth.ClientSecret != "" {
 		conf.ClientSecret = c.OAuth.ClientSecret
 	}
+	if len(c.OAuth.Scopes) != 0 {
+		conf.Scopes = c.OAuth.Scopes
+	}
+	if c.OAuth.TokenPath != "" {
+		tokenPath = c.OAuth.TokenPath
+	}
 	return getClient(context.TODO(), conf)
 }
 
 func getClient(ctx context.Context, config *oauth2.Config) *http.Client {
-	cacheFile := filepath.Join(shade.ConfigDir(), "google.token")
-	tok, err := tokenFromFile(cacheFile)
+	tok, err := tokenFromFile(tokenPath)
 	if err != nil {
 		tok = fetchToken(config)
-		saveToken(cacheFile, tok)
+		saveToken(tokenPath, tok)
 	}
 	return config.Client(ctx, tok)
 }
