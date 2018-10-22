@@ -67,9 +67,15 @@ type Config struct {
 	Write         bool
 	MaxFiles      uint64
 	MaxChunkBytes uint64
+
+	// See the godoc for the "encrypt" package for more details.
+	// Tip: `shadeutil genkeys -t N` will generate RSA keys and print them as
+	// properly formatted JSON strings, to make it easier to format a Config for
+	// the "encrypt" client.
 	RsaPublicKey  string
 	RsaPrivateKey string
-	Children      []Config
+
+	Children []Config
 }
 
 // OAuthConfig contains the OAuth configuration information.

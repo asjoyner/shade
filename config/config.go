@@ -1,9 +1,10 @@
-/* Package config reads and parses a JSON config which must represent a single
-* Drive object.
-
-See the testdata/ subdirectory for example configurations.
-*/
-
+// Package config reads and parses a JSON config which must represent a single
+// Drive object.
+//
+// See the testdata/ subdirectory for example configurations.
+//
+// Tip: `shadeutil genkeys -t N` will generate RSA keys and print them as
+// properly formatted JSON strings, for use with the "encrypt" client.
 package config
 
 import (

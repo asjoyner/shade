@@ -1,4 +1,4 @@
-/* Packge google provides a Shade storage implementation for Google Drive.
+/* Package google provides a Shade storage implementation for Google Drive.
 
 You may optionally configure a FileParentID and ChunkParentID to indicate where
 to store the files and chunks.  These values are Drive's alphanumeric unique
@@ -12,16 +12,16 @@ You can optionally reduce the scope to only
 'https://www.googleapis.com/auth/drive.appfolder'.
 
 The following configuration values are not directly supported:
-   * MaxFiles
-	 * MaxChunkBytes
-	 * RsaPublicKey
-	 * RsaPrivateKey
-	 * Children
+   MaxFiles
+   MaxChunkBytes
+   RsaPublicKey
+   RsaPrivateKey
+   Children
 
 To encrypt the contents written to Google Drive, wrap the configuration stanza
 with the github.com/asjoyner/shade/drive/encrypt package.
 
-It supports overriding all of the OAuth configuration parameters.
+This package supports overriding all of the OAuth configuration parameters.
 */
 package google
 
