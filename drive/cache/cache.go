@@ -76,7 +76,14 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 // GetFile retrieves a file with a given SHA-256 sum.  It will be returned
 // from the first client in the slice of structs that returns the chunk.
 func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
-	return s.GetChunk(sha256sum, nil)
+	for _, client := range s.clients {
+		file, err := client.GetFile(sha256sum)
+		if err != nil {
+			continue
+		}
+		return file, nil
+	}
+	return nil, errors.New("file not found")
 }
 
 // PutFile writes the metadata describing a new file.  It will be written to
