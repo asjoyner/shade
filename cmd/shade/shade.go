@@ -31,7 +31,6 @@ var (
 	readOnly   = flag.Bool("readonly", false, "Mount the filesystem read only.")
 	allowOther = flag.Bool("allow_other", false, "If other users are allowed to view the mounted filesystem.")
 	configFile = flag.String("config", defaultConfig, fmt.Sprintf("The shade config file. Defaults to %q", defaultConfig))
-	cacheDebug = flag.Bool("cacheDebug", false, "Print cache debugging traces")
 	treeDebug  = flag.Bool("treeDebug", false, "Print Node tree debugging traces")
 )
 
@@ -55,11 +54,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not initialize client: %s\n", err)
 	}
-	/*
-		if *cacheDebug {
-			cacheClient.Debug()
-		}
-	*/
 
 	// Setup fuse FS
 	conn, err := mountFuse(flag.Arg(0))

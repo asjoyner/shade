@@ -5,11 +5,16 @@ package cache
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
+)
+
+var (
+	cacheDebug = flag.Bool("cacheDebug", false, "Print cache debugging traces")
 )
 
 func init() {
@@ -228,11 +233,11 @@ func (s *Drive) Persistent() bool {
 // Debug enables debug statements to STDERR for non-critical failures to read or
 // write from clients.
 func (s *Drive) Debug() {
-	s.debug = true
+	flag.Set("cacheDebug", "true")
 }
 
 func (s *Drive) log(output string) {
-	if s.debug {
+	if *cacheDebug {
 		log.Printf("drive.Cache: %s\n", output)
 	}
 }
