@@ -118,7 +118,7 @@ func (s *Drive) PutFile(sha256sum, content []byte) error {
 
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
 	br := bytes.NewReader(content)
-	if _, err := s.service.Files.Create(f).Context(ctx).Media(br).Do(); err != nil {
+	if _, err := s.service.Files.Create(f).SupportsTeamDrives(true).Context(ctx).Media(br).Do(); err != nil {
 		return fmt.Errorf("couldn't create file: %v", err)
 	}
 	return nil
@@ -137,7 +137,7 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 		if s.config.FileParentID != "" {
 			q = fmt.Sprintf("%s and ('%s' in parents OR '%s' in parents)", q, s.config.FileParentID, s.config.ChunkParentID)
 		}
-		r, err := s.service.Files.List().Context(ctx).Q(q).Fields("files(id, name)").Do()
+		r, err := s.service.Files.List().SupportsTeamDrives(true).Context(ctx).Q(q).Fields("files(id, name)").Do()
 		if err != nil {
 			return nil, fmt.Errorf("couldn't get metadata for chunk %v: %v", filename, err)
 		}
@@ -147,7 +147,7 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 		fileID = r.Files[0].Id
 	}
 
-	resp, err := s.service.Files.Get(fileID).Download()
+	resp, err := s.service.Files.Get(fileID).SupportsTeamDrives(true).Download()
 	if err != nil {
 		return nil, fmt.Errorf("couldn't download chunk %v: %v", filename, err)
 	}
@@ -178,7 +178,7 @@ func (s *Drive) PutChunk(sha256sum, content []byte, _ *shade.File) error {
 
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
 	br := bytes.NewReader(content)
-	if _, err := s.service.Files.Create(f).Context(ctx).Media(br).Do(); err != nil {
+	if _, err := s.service.Files.Create(f).SupportsTeamDrives(true).Context(ctx).Media(br).Do(); err != nil {
 		return fmt.Errorf("couldn't create file: %v", err)
 	}
 	return nil

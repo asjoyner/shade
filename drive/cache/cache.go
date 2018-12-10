@@ -40,26 +40,24 @@ func NewClient(c drive.Config) (drive.Client, error) {
 			return nil, fmt.Errorf("%s: %s", conf.Provider, err)
 		}
 		if child.GetConfig().Write {
+			d.log(fmt.Sprintf("child %s is writable.", conf.Provider))
 			d.config.Write = true
+		} else {
+			d.log(fmt.Sprintf("child %s is NOT writable.", conf.Provider))
 		}
 		d.clients = append(d.clients, child)
 	}
+	d.log(fmt.Sprintf("my final status is: %v", d.config.Write))
 	d.files = make(chan refreshReq, 100)
 	go func(d *Drive) {
-		for {
-			select {
-			case r := <-d.files:
-				d.refreshFile(r.sha256sum, r.content)
-			}
+		for r := range d.files {
+			d.refreshFile(r.sha256sum, r.content)
 		}
 	}(d)
 	d.chunks = make(chan refreshReq, 100)
 	go func(d *Drive) {
-		for {
-			select {
-			case r := <-d.chunks:
-				d.refreshChunk(r.sha256sum, r.content, r.f)
-			}
+		for r := range d.chunks {
+			d.refreshChunk(r.sha256sum, r.content, r.f)
 		}
 	}(d)
 	return d, nil
@@ -207,7 +205,7 @@ func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, f *shade.File) error {
 
 // GetConfig returns the config used to initialize this client.
 func (s *Drive) GetConfig() drive.Config {
-	return drive.Config{Provider: "cache"}
+	return s.config
 }
 
 // Local returns true only if all configured storage backends are local to this

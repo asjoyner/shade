@@ -75,7 +75,7 @@ func NewClient(c drive.Config) (drive.Client, error) {
 		}
 		d.pubkey = rsapubkey
 	} else {
-		return nil, fmt.Errorf("You must specify either a public or private key.")
+		return nil, fmt.Errorf("encrypt requires that you specify either a public or private key")
 	}
 
 	// Initialize the child client
@@ -258,22 +258,22 @@ func GetEncryptedSum(sha256sum []byte, f *shade.File) (encryptedSum []byte, err 
 	if nonce == nil {
 		return nil, fmt.Errorf("no corresponding Chunk in File: %x", sha256sum)
 	}
-	return EncryptUnsafe(sha256sum, f.AesKey, nonce)
+	return encryptUnsafe(sha256sum, f.AesKey, nonce)
 }
 
 // Encrypt encrypts data using 256-bit AES-GCM.  This both hides the content of
 // the data and provides a check that it hasn't been altered. Output takes the
 // form nonce|ciphertext|tag where '|' indicates concatenation.
 func Encrypt(plaintext []byte, key *[32]byte) (ciphertext []byte, err error) {
-	return EncryptUnsafe(plaintext, key, shade.NewNonce())
+	return encryptUnsafe(plaintext, key, shade.NewNonce())
 }
 
-// EncryptUnsafe is the internal implementation of Encrypt().  It  allows you
+// encryptUnsafe is the internal implementation of Encrypt().  It  allows you
 // to specify the key AND the nonce.  Use with caution: you must not encrypt
 // two different messages with the same key and nonce!
-func EncryptUnsafe(plaintext []byte, key *[32]byte, nonce []byte) (ciphertext []byte, err error) {
+func encryptUnsafe(plaintext []byte, key *[32]byte, nonce []byte) (ciphertext []byte, err error) {
 	if key == nil {
-		return nil, fmt.Errorf("No key provided!")
+		return nil, fmt.Errorf("no key provided")
 	}
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
@@ -319,7 +319,7 @@ func Decrypt(ciphertext []byte, key *[32]byte) (plaintext []byte, err error) {
 
 // GetConfig returns the config used to initialize this client.
 func (s *Drive) GetConfig() drive.Config {
-	return drive.Config{Provider: "encrypt"}
+	return s.config
 }
 
 // Local returns true only if the configured backend is local to this machine.
