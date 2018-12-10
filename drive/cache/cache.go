@@ -110,6 +110,7 @@ func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
 	for _, client := range s.clients {
 		file, err := client.GetFile(sha256sum)
 		if err != nil {
+			s.log(fmt.Sprintf("File %x not found in %q: %s", sha256sum, client.GetConfig().Provider, err))
 			continue
 		}
 		s.files <- refreshReq{sha256sum: sha256sum, content: file, f: nil}
@@ -161,6 +162,7 @@ func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 	for _, client := range s.clients {
 		chunk, err := client.GetChunk(sha256sum, f)
 		if err != nil {
+			s.log(fmt.Sprintf("Chunk %x not found in %q: %s", sha256sum, client.GetConfig().Provider, err))
 			continue
 		}
 		s.files <- refreshReq{sha256sum: sha256sum, content: chunk, f: f}
