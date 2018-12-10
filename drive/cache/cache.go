@@ -33,7 +33,7 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	if len(c.Children) == 0 {
 		return nil, errors.New("no clients provided")
 	}
-	d := &Drive{}
+	d := &Drive{config: c}
 	for _, conf := range c.Children {
 		child, err := drive.NewClient(conf)
 		if err != nil {

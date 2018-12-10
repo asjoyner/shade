@@ -46,7 +46,7 @@ func init() {
 
 // NewClient performs sanity checking and returns a Drive client.
 func NewClient(c drive.Config) (drive.Client, error) {
-	d := &Drive{}
+	d := &Drive{config: c}
 	var err error
 	// Decode and verify RSA pub/priv keys
 	if len(c.RsaPrivateKey) > 0 {
