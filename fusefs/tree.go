@@ -3,6 +3,7 @@ package fusefs
 import (
 	"encoding/json"
 	"errors"
+	"expvar"
 	"fmt"
 	"log"
 	"path"
@@ -12,6 +13,11 @@ import (
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
+)
+
+var (
+	treeNodes             = expvar.NewInt("treeNodes")
+	lastRefreshDurationMs = expvar.NewInt("lastRefreshDurationMs")
 )
 
 // Node is a very compact representation of a shade.File.  It can also be used
@@ -194,6 +200,7 @@ func (t *Tree) Update(n Node) {
 // processing the result.
 func (t *Tree) Refresh() error {
 	t.log("Begining cache refresh cycle.")
+	start := time.Now()
 	// key is a string([]byte) representation of the file's SHA2
 	knownNodes := make(map[string]bool)
 	newFiles, err := t.client.ListFiles()
@@ -241,6 +248,8 @@ func (t *Tree) Refresh() error {
 		knownNodes[string(sha256sum)] = true
 	}
 	t.log(fmt.Sprintf("Refresh complete with %d file(s).", len(knownNodes)))
+	lastRefreshDurationMs.Set(int64(time.Since(start).Nanoseconds() / 1000))
+	treeNodes.Set(int64(len(knownNodes)))
 	return nil
 }
 

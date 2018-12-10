@@ -2,7 +2,13 @@ package fusefs
 
 import (
 	"errors"
+	"expvar"
 	"sync"
+)
+
+var (
+	numOpenInodes = expvar.NewInt("numOpenInodes")
+	lastInode     = expvar.NewInt("lastInode")
 )
 
 // InodeMap provides a mapping from fuse.Node to and from the Path that it
@@ -16,6 +22,8 @@ type InodeMap struct {
 // NewInodeMap returns an initialized InodeMap. Initially, it knows of only the
 // path to the root inode.
 func NewInodeMap() *InodeMap {
+	numOpenInodes.Set(1)
+	lastInode.Set(1)
 	return &InodeMap{
 		inodes: map[uint64]string{
 			1: "/",
@@ -41,6 +49,8 @@ func (im *InodeMap) FromPath(p string) uint64 {
 	defer im.Unlock()
 	im.lastInode++
 	im.inodes[im.lastInode] = p
+	numOpenInodes.Set(int64(len(im.inodes)))
+	lastInode.Set(int64(im.lastInode))
 	return im.lastInode
 }
 
@@ -60,4 +70,6 @@ func (im *InodeMap) Release(inode uint64) {
 	im.Lock()
 	defer im.Unlock()
 	delete(im.inodes, inode)
+	numOpenInodes.Set(int64(len(im.inodes)))
+	lastInode.Set(int64(im.lastInode))
 }

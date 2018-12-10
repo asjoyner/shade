@@ -5,10 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path"
 	"time"
+
+	_ "expvar"
 
 	"bazil.org/fuse"
 
@@ -32,6 +35,7 @@ var (
 	allowOther = flag.Bool("allow_other", false, "If other users are allowed to view the mounted filesystem.")
 	configFile = flag.String("config", defaultConfig, fmt.Sprintf("The shade config file. Defaults to %q", defaultConfig))
 	treeDebug  = flag.Bool("treeDebug", false, "Print Node tree debugging traces")
+	port       = flag.Int("port", 33247, "HTTP port to listen on (exposes debug and monitoring handlers).")
 )
 
 func main() {
@@ -42,6 +46,9 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+
+	// initialize the webserver
+	go func() { log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)) }()
 
 	// read in the config
 	config, err := config.Read(*configFile)
@@ -77,7 +84,7 @@ func usage() {
 
 func mountFuse(mountPoint string) (*fuse.Conn, error) {
 	if err := sanityCheck(mountPoint); err != nil {
-		return nil, fmt.Errorf("sanityCheck failed: %s\n", err)
+		return nil, fmt.Errorf("sanityCheck failed: %s", err)
 	}
 
 	options := []fuse.MountOption{
@@ -103,7 +110,7 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	go func() {
-		for _ = range sig {
+		for range sig {
 			if err := fuse.Unmount(mountPoint); err != nil {
 				log.Printf("fuse.Unmount failed: %v", err)
 			}
