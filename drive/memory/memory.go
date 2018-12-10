@@ -5,12 +5,19 @@ package memory
 
 import (
 	"errors"
+	"expvar"
 	"sync"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 )
 
+var (
+	memoryFiles  = expvar.NewInt("memoryFiles")
+	memoryChunks = expvar.NewInt("memoryChunks")
+)
+
+// Node is a very compact representation of a shade.File.  It can also be used
 func init() {
 	drive.RegisterProvider("memory", NewClient)
 }
@@ -58,6 +65,7 @@ func (s *Drive) PutFile(sha256sum, f []byte) error {
 	defer s.cm.Unlock()
 	s.files = append(s.files, sha256sum)
 	s.chunks[string(sha256sum)] = f
+	memoryFiles.Set(int64(len(s.files)))
 	return nil
 }
 
@@ -79,6 +87,7 @@ func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, _ *shade.File) error {
 	s.cm.Lock()
 	defer s.cm.Unlock()
 	s.chunks[string(sha256sum)] = chunk
+	memoryChunks.Set(int64(len(s.chunks)))
 	return nil
 }
 

@@ -8,6 +8,7 @@ package local
 import (
 	"encoding/hex"
 	"errors"
+	"expvar"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -19,6 +20,12 @@ import (
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 	"github.com/google/btree"
+)
+
+var (
+	localFiles      = expvar.NewInt("localFiles")
+	localChunks     = expvar.NewInt("localChunks")
+	localChunkBytes = expvar.NewInt("localChunkBytes")
 )
 
 func init() {
@@ -72,6 +79,7 @@ func NewClient(c drive.Config) (drive.Client, error) {
 			})
 		}
 	}
+	localFiles.Set(int64(s.files.Len()))
 
 	// Count the bytes in the local storage
 	chunks, err := ioutil.ReadDir(c.ChunkParentID)
@@ -92,6 +100,8 @@ func NewClient(c drive.Config) (drive.Client, error) {
 			s.chunkBytes += uint64(fi.Size())
 		}
 	}
+	localChunks.Set(int64(s.chunks.Len()))
+	localChunkBytes.Set(int64(s.chunkBytes))
 
 	return s, nil
 }
@@ -187,6 +197,7 @@ func (s *Drive) PutFile(sha256sum, data []byte) error {
 		sum:   sha256sum,
 		mtime: fi.ModTime().Unix(),
 	})
+	localFiles.Set(int64(s.files.Len()))
 	return nil
 }
 
@@ -245,6 +256,8 @@ func (s *Drive) PutChunk(sha256sum []byte, data []byte, f *shade.File) error {
 		mtime: fi.ModTime().Unix(),
 	})
 	s.chunkBytes += uint64(len(data))
+	localChunks.Set(int64(s.chunks.Len()))
+	localChunkBytes.Set(int64(s.chunkBytes))
 	return nil
 }
 
