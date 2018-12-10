@@ -16,6 +16,12 @@ func init() {
 	drive.RegisterProvider("cache", NewClient)
 }
 
+type refreshReq struct {
+	sha256sum []byte
+	content   []byte
+	f         *shade.File
+}
+
 // NewClient returns a Drive client which centralizes reading and writing to
 // multiple Providers.
 func NewClient(c drive.Config) (drive.Client, error) {
@@ -33,6 +39,24 @@ func NewClient(c drive.Config) (drive.Client, error) {
 		}
 		d.clients = append(d.clients, child)
 	}
+	d.files = make(chan refreshReq, 100)
+	go func(d *Drive) {
+		for {
+			select {
+			case r := <-d.files:
+				d.refreshFile(r.sha256sum, r.content)
+			}
+		}
+	}(d)
+	d.chunks = make(chan refreshReq, 100)
+	go func(d *Drive) {
+		for {
+			select {
+			case r := <-d.chunks:
+				d.refreshChunk(r.sha256sum, r.content, r.f)
+			}
+		}
+	}(d)
 	return d, nil
 }
 
@@ -47,6 +71,8 @@ func NewClient(c drive.Config) (drive.Client, error) {
 type Drive struct {
 	config  drive.Config
 	clients []drive.Client
+	chunks  chan refreshReq
+	files   chan refreshReq
 	debug   bool
 }
 
@@ -81,6 +107,7 @@ func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
 		if err != nil {
 			continue
 		}
+		s.files <- refreshReq{sha256sum: sha256sum, content: file, f: nil}
 		return file, nil
 	}
 	return nil, errors.New("file not found")
@@ -111,7 +138,7 @@ func (s *Drive) PutFile(sha256sum, f []byte) error {
 			done <- struct{}{}
 		}(client)
 	}
-	for _ = range s.clients {
+	for range s.clients {
 		select {
 		case <-persisted:
 			return nil
@@ -131,6 +158,7 @@ func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 		if err != nil {
 			continue
 		}
+		s.files <- refreshReq{sha256sum: sha256sum, content: chunk, f: f}
 		return chunk, nil
 	}
 	return nil, errors.New("chunk not found")
@@ -160,7 +188,7 @@ func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, f *shade.File) error {
 			done <- struct{}{}
 		}(client)
 	}
-	for _ = range s.clients {
+	for range s.clients {
 		select {
 		case <-persisted:
 			return nil
@@ -206,5 +234,36 @@ func (s *Drive) Debug() {
 func (s *Drive) log(output string) {
 	if s.debug {
 		log.Printf("drive.Cache: %s\n", output)
+	}
+}
+
+func (s *Drive) refreshWorker() {
+	select {
+	case r := <-s.files:
+		s.refreshFile(r.sha256sum, r.content)
+	case r := <-s.chunks:
+		s.refreshChunk(r.sha256sum, r.content, r.f)
+	}
+}
+
+// refreshFile calls PutFile on each client which is Local()
+// This populates eg. memory and disk clients with files that are
+// fetched from remote clients.  Errors are logged, but not returned.
+func (s *Drive) refreshFile(sha256sum, file []byte) {
+	for _, client := range s.clients {
+		if client.Local() {
+			client.PutFile(sha256sum, file)
+		}
+	}
+}
+
+// refreshChunk calls PutChunk on each client which is Local()
+// This populates eg. memory and disk clients with chunks that are
+// fetched from remote clients.  Errors are logged, but not returned.
+func (s *Drive) refreshChunk(sha256sum, chunk []byte, f *shade.File) {
+	for _, client := range s.clients {
+		if client.Local() {
+			client.PutChunk(sha256sum, chunk, f)
+		}
 	}
 }

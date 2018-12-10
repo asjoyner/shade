@@ -28,7 +28,7 @@ import (
 
 var (
 	kernelRefresh = flag.Duration("kernel-refresh", time.Minute, "How long the kernel should cache metadata entries.")
-	numWorkers    = flag.Int("numWorkers", 20, "The number of goroutines to service fuse requests.")
+	numWorkers    = flag.Int("numFuseWorkers", 20, "The number of goroutines to service fuse requests.")
 )
 
 // DefaultChunkSizeBytes defines the default for newly created shade.File(s)
