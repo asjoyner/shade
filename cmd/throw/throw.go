@@ -63,9 +63,11 @@ func main() {
 		os.Exit(3)
 	}
 
-	chunk := shade.NewChunk()
 	chunkbytes := make([]byte, manifest.Chunksize)
 	for {
+		// Initialize chunk each pass, to ensure each chunk uses a unique nonce
+		chunk := shade.NewChunk()
+
 		// Read a chunk
 		len, err := fh.Read(chunkbytes)
 		if err == io.EOF {
