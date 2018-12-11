@@ -236,6 +236,7 @@ func (t *Tree) Refresh() error {
 			Sha256sum:    sha256sum,
 			Children:     nil,
 		}
+		t.log(fmt.Sprintf("processing node: %+v", node))
 		t.nm.Lock()
 		// TODO(asjoyner): handle file + directory collisions
 		if existing, ok := t.nodes[node.Filename]; ok && existing.ModifiedTime.After(node.ModifiedTime) {
@@ -243,7 +244,14 @@ func (t *Tree) Refresh() error {
 			continue
 		}
 		t.nodes[node.Filename] = node
-		t.addParents(node.Filename)
+		if node.Deleted { // ensure the parent is updated
+			dir, f := path.Split(node.Filename)
+			dir = strings.TrimSuffix(dir, "/")
+			parent, _ := t.nodes[dir]
+			delete(parent.Children, f) // harmless if parent doesn't exist
+		} else {
+			t.addParents(node.Filename)
+		}
 		t.nm.Unlock()
 		knownNodes[string(sha256sum)] = true
 	}
