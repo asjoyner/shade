@@ -133,6 +133,11 @@ func serviceFuse(conn *fuse.Conn, client drive.Client) error {
 		ffs.TreeDebug()
 	}
 
+	http.HandleFunc("/refresh", func(w http.ResponseWriter, r *http.Request) {
+		ffs.Refresh()
+		fmt.Fprintf(w, "Ok")
+	})
+
 	go func() {
 		<-conn.Ready // block until the fuse FS is mounted and ready
 		if err := conn.MountError; err != nil {
