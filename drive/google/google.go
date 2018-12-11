@@ -1,4 +1,4 @@
-/* Package google provides a Shade storage implementation for Google Drive.
+/*Package google provides a Shade storage implementation for Google Drive.
 
 You may optionally configure a FileParentID and ChunkParentID to indicate where
 to store the files and chunks.  These values are Drive's alphanumeric unique
@@ -28,6 +28,7 @@ package google
 import (
 	"bytes"
 	"encoding/hex"
+	"expvar"
 	"fmt"
 	"io/ioutil"
 	"sync"
@@ -38,6 +39,14 @@ import (
 	"github.com/asjoyner/shade/drive"
 
 	"golang.org/x/net/context"
+)
+
+var (
+	listFileReq = expvar.NewInt("googleListFilesReq")
+	getFileReq  = expvar.NewInt("googleGetFileReq")
+	putFileReq  = expvar.NewInt("googlePutFileReq")
+	getChunkReq = expvar.NewInt("googleGetChunkReq")
+	putChunkReq = expvar.NewInt("googlePutChunkReq")
 )
 
 func init() {
@@ -71,6 +80,7 @@ type Drive struct {
 // the corresponding sha256sum of the file object.  Those may be passed to
 // GetChunk() to retrieve the corresponding shade.File.
 func (s *Drive) ListFiles() ([][]byte, error) {
+	listFileReq.Add(1)
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
 	// this query is a Google Drive API query string which will return all
 	// shade metadata files, optionally restricted to a FileParentID
@@ -102,12 +112,14 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 
 // GetFile retrieves a chunk with a given SHA-256 sum
 func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
+	getFileReq.Add(1)
 	return s.GetChunk(sha256sum, nil)
 }
 
 // PutFile writes the metadata describing a new file.
 // content should be marshalled JSON, and may be encrypted.
 func (s *Drive) PutFile(sha256sum, content []byte) error {
+	putFileReq.Add(1)
 	f := &gdrive.File{
 		Name:          hex.EncodeToString(sha256sum),
 		AppProperties: map[string]string{"shadeType": "file"},
@@ -126,6 +138,7 @@ func (s *Drive) PutFile(sha256sum, content []byte) error {
 
 // GetChunk retrieves a chunk with a given SHA-256 sum
 func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
+	getChunkReq.Add(1)
 	s.mu.RLock()
 	fileID, ok := s.files[string(sha256sum)]
 	s.mu.RUnlock()
@@ -162,6 +175,7 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 
 // PutChunk writes a chunk and returns its SHA-256 sum
 func (s *Drive) PutChunk(sha256sum, content []byte, _ *shade.File) error {
+	putChunkReq.Add(1)
 	s.mu.RLock()
 	_, ok := s.files[string(sha256sum)]
 	s.mu.RUnlock()
