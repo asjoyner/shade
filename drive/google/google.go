@@ -88,7 +88,7 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 	if s.config.FileParentID != "" {
 		q = fmt.Sprintf("%s and '%s' in parents", q, s.config.FileParentID)
 	}
-	r, err := s.service.Files.List().Context(ctx).Q(q).Fields("files(id, name)").Do()
+	r, err := s.service.Files.List().SupportsTeamDrives(true).Context(ctx).Q(q).Fields("files(id, name)").Do()
 	if err != nil {
 		return nil, fmt.Errorf("couldn't retrieve files: %v", err)
 	}
