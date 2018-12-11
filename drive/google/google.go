@@ -33,6 +33,8 @@ import (
 	"io/ioutil"
 	"sync"
 
+	"github.com/golang/glog"
+
 	gdrive "google.golang.org/api/drive/v3"
 
 	"github.com/asjoyner/shade"
@@ -94,6 +96,7 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 	}
 	r, err := s.service.Files.List().IncludeTeamDriveItems(true).SupportsTeamDrives(true).Context(ctx).Q(q).Fields("files(id, name)").Do()
 	if err != nil {
+		glog.Errorf("List(): %v", err)
 		return nil, fmt.Errorf("couldn't retrieve files: %v", err)
 	}
 	s.mu.Lock()
@@ -135,6 +138,7 @@ func (s *Drive) PutFile(sha256sum, content []byte) error {
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
 	br := bytes.NewReader(content)
 	if _, err := s.service.Files.Create(f).SupportsTeamDrives(true).Context(ctx).Media(br).Do(); err != nil {
+		glog.Warningf("couldn't create file: %v", err)
 		return fmt.Errorf("couldn't create file: %v", err)
 	}
 	return nil
@@ -154,13 +158,15 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 		if s.config.FileParentID != "" {
 			q = fmt.Sprintf("%s and ('%s' in parents OR '%s' in parents)", q, s.config.FileParentID, s.config.ChunkParentID)
 		}
-		r, err := s.service.Files.List().SupportsTeamDrives(true).Context(ctx).Q(q).Fields("files(id, name)").Do()
+		r, err := s.service.Files.List().SupportsTeamDrives(true).IncludeTeamDriveItems(true).Context(ctx).Q(q).Fields("files(id, name)").Do()
 		if err != nil {
 			getChunkMetadataError.Add(1)
+			glog.Warningf("couldn't get metadata for chunk %v: %v", filename, err)
 			return nil, fmt.Errorf("couldn't get metadata for chunk %v: %v", filename, err)
 		}
 		if len(r.Files) != 1 {
 			getChunkDupeError.Add(1)
+			glog.Warningf("got non-unique chunk result for chunk %v: %#v", filename, r.Files)
 			return nil, fmt.Errorf("got non-unique chunk result for chunk %v: %#v", filename, r.Files)
 		}
 		fileID = r.Files[0].Id
@@ -169,12 +175,14 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 	resp, err := s.service.Files.Get(fileID).SupportsTeamDrives(true).Download()
 	if err != nil {
 		getChunkDownloadError.Add(1)
+		glog.Warningf("couldn't download chunk %v: %v", filename, err)
 		return nil, fmt.Errorf("couldn't download chunk %v: %v", filename, err)
 	}
 	defer resp.Body.Close()
 
 	chunk, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
+		glog.Warningf("couldn't read chunk %v: %v", filename, err)
 		return nil, fmt.Errorf("couldn't read chunk %v: %v", filename, err)
 	}
 	getChunkSuccess.Add(1)
@@ -201,6 +209,7 @@ func (s *Drive) PutChunk(sha256sum, content []byte, _ *shade.File) error {
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
 	br := bytes.NewReader(content)
 	if _, err := s.service.Files.Create(f).SupportsTeamDrives(true).Context(ctx).Media(br).Do(); err != nil {
+		glog.Warningf("couldn't create file: %v", err)
 		return fmt.Errorf("couldn't create file: %v", err)
 	}
 	return nil
