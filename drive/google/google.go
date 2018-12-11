@@ -42,11 +42,15 @@ import (
 )
 
 var (
-	listFileReq = expvar.NewInt("googleListFilesReq")
-	getFileReq  = expvar.NewInt("googleGetFileReq")
-	putFileReq  = expvar.NewInt("googlePutFileReq")
-	getChunkReq = expvar.NewInt("googleGetChunkReq")
-	putChunkReq = expvar.NewInt("googlePutChunkReq")
+	listFileReq           = expvar.NewInt("googleListFilesReq")
+	getFileReq            = expvar.NewInt("googleGetFileReq")
+	putFileReq            = expvar.NewInt("googlePutFileReq")
+	getChunkReq           = expvar.NewInt("googleGetChunkReq")
+	putChunkReq           = expvar.NewInt("googlePutChunkReq")
+	getChunkSuccess       = expvar.NewInt("googleGetChunkSuccess")
+	getChunkDupeError     = expvar.NewInt("googleGetDupeError")
+	getChunkMetadataError = expvar.NewInt("googleGetChunkMetadataError")
+	getChunkDownloadError = expvar.NewInt("googleGetChunkDownloadError")
 )
 
 func init() {
@@ -152,9 +156,11 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 		}
 		r, err := s.service.Files.List().SupportsTeamDrives(true).Context(ctx).Q(q).Fields("files(id, name)").Do()
 		if err != nil {
+			getChunkMetadataError.Add(1)
 			return nil, fmt.Errorf("couldn't get metadata for chunk %v: %v", filename, err)
 		}
 		if len(r.Files) != 1 {
+			getChunkDupeError.Add(1)
 			return nil, fmt.Errorf("got non-unique chunk result for chunk %v: %#v", filename, r.Files)
 		}
 		fileID = r.Files[0].Id
@@ -162,6 +168,7 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 
 	resp, err := s.service.Files.Get(fileID).SupportsTeamDrives(true).Download()
 	if err != nil {
+		getChunkDownloadError.Add(1)
 		return nil, fmt.Errorf("couldn't download chunk %v: %v", filename, err)
 	}
 	defer resp.Body.Close()
@@ -170,6 +177,7 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("couldn't read chunk %v: %v", filename, err)
 	}
+	getChunkSuccess.Add(1)
 	return chunk, nil
 }
 
