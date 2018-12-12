@@ -103,7 +103,7 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 	// Make a file out of the chunks
 	file := shade.NewFile("testfile")
 	i := 0
-	for sum, _ := range testChunks {
+	for sum := range testChunks {
 		chunk := shade.NewChunk()
 		chunk.Index = i
 		chunk.Sha256 = []byte(sum)
