@@ -197,11 +197,11 @@ func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
 //  - encrypt the bytes with the provided Key and a unique Nonce
 //  - store the encrypted bytes at the encrypted sum in the child client
 func (s *Drive) PutChunk(sha256sum []byte, chunkBytes []byte, f *shade.File) error {
+	if f == nil {
+		return errors.New("provide a file pointer to Put an encrypted chunk")
+	}
 	if s.config.Write == false {
 		return errors.New("no clients configured to write")
-	}
-	if f == nil {
-		return errors.New("no file provided")
 	}
 	if f.AesKey == nil {
 		return errors.New("no AES encryption key for file")
@@ -225,6 +225,9 @@ func (s *Drive) PutChunk(sha256sum []byte, chunkBytes []byte, f *shade.File) err
 // It reverses the process of PutChunk, in particular, leveraging the stored
 // Nonce to be able to find the encrypted sha256sum in the child client.
 func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
+	if f == nil {
+		return nil, errors.New("provide a file pointer to Get an encrypted chunk")
+	}
 	encryptedSum, err := GetEncryptedSum(sha256sum, f)
 	if err != nil {
 		return nil, fmt.Errorf("encrypting sha256sum %x: %s", sha256sum, err)
@@ -245,6 +248,9 @@ func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 // stored at, for a given chunk in a given file.  It is used both by PutChunk
 // to store the chunk, and later by GetChunk to find it again.
 func GetEncryptedSum(sha256sum []byte, f *shade.File) (encryptedSum []byte, err error) {
+	if f == nil {
+		return nil, errors.New("provide a file pointer to Get an encrypted chunk")
+	}
 	var nonce []byte
 	// Find the chunk's Nonce
 	for _, chunk := range f.Chunks {
