@@ -123,9 +123,11 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 	}
 
 	// Populate them all again, which should not return an error.
-	var firstRetainedChunk uint64
+	var firstRetainedChunk = -1 // ignore LRU behavior by default
 	if maxBytes > 0 {
-		firstRetainedChunk = maxBytes / chunkSize
+		numRetainedChunks := maxBytes / chunkSize
+		firstRetainedChunk = len(testChunks) - int(numRetainedChunks)
+		//fmt.Println("first retained chunk: ", firstRetainedChunk)
 	}
 	orderedChunks := make([]string, 0, numChunks)
 	for stringSum, chunk := range testChunks {
@@ -134,13 +136,18 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 			t.Fatalf("Failed to put test chunk a second time %x: %s", stringSum, err)
 		}
 
+		_, err = c.GetChunk([]byte(stringSum), file)
+		if err != nil {
+			t.Fatalf("Failed to fetch test chunk %x: %s", stringSum, err)
+		}
+
 		// Make note of the order, for checking MaxChunkBytes LRU behavior.
 		orderedChunks = append(orderedChunks, stringSum)
 		// The granularity of the local LRU is only 1 second, because it uses
 		// mtime to track which chunks are most recent.  Sleep at the boundary
 		// of the chunks we expect to be kept, so we ensure we know which
 		// chunks will be kept.
-		if maxBytes > 0 && uint64(len(orderedChunks)) == firstRetainedChunk {
+		if maxBytes > 0 && len(orderedChunks) == firstRetainedChunk {
 			time.Sleep(1 * time.Second)
 		}
 	}
@@ -149,7 +156,7 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 	for i, stringSum := range orderedChunks {
 		returnedChunk, err := c.GetChunk([]byte(stringSum), file)
 		// Check that the newest chunks were retained
-		if uint64(i) >= firstRetainedChunk {
+		if i >= firstRetainedChunk {
 			if err != nil {
 				t.Errorf("Failed to retrieve chunk %d of %d with sum %x: %s", i, len(orderedChunks), stringSum, err)
 				continue
@@ -167,7 +174,7 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 	}
 }
 
-// TestParallelRoundTrip calls 10 copies of both test functions in parallel, to
+// TestParallelRoundTrip calls 4 copies of both test functions in parallel, to
 // try to tickle race conditions in the implementation.
 func TestParallelRoundTrip(t *testing.T, c Client, n uint64) {
 	var wg sync.WaitGroup
