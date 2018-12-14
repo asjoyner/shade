@@ -56,7 +56,9 @@ func TestTwoMemoryClients(t *testing.T) {
 	// Give the myriad goroutines a second to coalesce
 	time.Sleep(1 * time.Second)
 
-	compareMemoryDrives(t, client0, client1)
+	if err := client0.Equal(client1); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestMemoryAndFailClients(t *testing.T) {
@@ -95,40 +97,5 @@ func TestOnlyPersistentSatisfies(t *testing.T) {
 	}
 	if cc.PutChunk([]byte("b13s"), []byte("Hope is not a strategy."), nil) == nil {
 		t.Fatal("failed write to only persistent drive did not fail PutChunk")
-	}
-}
-
-func compareMemoryDrives(t *testing.T, client0, client1 *memory.Drive) {
-	files0, _ := client0.ListFiles() // memory client never returns err
-	files1, _ := client1.ListFiles() // memory client never returns err
-
-	if len(files0) != len(files1) {
-		t.Errorf("backing clients have different numbers of files:\n0: %+v\n1:%+v", len(files0), len(files1))
-	}
-	compareByteSlices(t, files0, files1)
-
-	chunks0 := client0.ListChunks()
-	chunks1 := client1.ListChunks()
-
-	if len(chunks0) != len(chunks1) {
-		t.Errorf("backing clients have different numbers of chunks:\n0: %+v\n1:%+v", len(chunks0), len(chunks1))
-	}
-
-	compareByteSlices(t, chunks0, chunks1)
-}
-
-func compareByteSlices(t *testing.T, a, b [][]byte) {
-	// throw them both into a map to compare
-	fm := make(map[string]int)
-	for _, f := range a {
-		fm[string(f)]++
-	}
-	for _, f := range b {
-		fm[string(f)]++
-	}
-	for f, times := range fm {
-		if times == 1 {
-			t.Errorf("one client didn't get this file: %x", f)
-		}
 	}
 }
