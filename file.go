@@ -45,6 +45,10 @@ type File struct {
 	AesKey *[32]byte
 }
 
+// NewFile returns a new File object for the given filename.
+//
+// It initializes an AesKey, sets the ModifiedTime to time.Now(), and sets the
+// default Chunksize based on --chunksize.
 func NewFile(filename string) *File {
 	return &File{
 		Filename:     filename,
@@ -93,7 +97,7 @@ func (f *File) ToJSON() ([]byte, error) {
 // It primarily provides a convenient error message if this fails.
 func (f *File) FromJSON(fj []byte) error {
 	if err := json.Unmarshal(fj, f); err != nil {
-		return fmt.Errorf("failed to unmarshal sha256sum %x: %s", SumString(fj), err)
+		return fmt.Errorf("failed to unmarshal sha256sum %s: %s", SumString(fj), err)
 	}
 	return nil
 }
@@ -105,6 +109,9 @@ func (f *File) UpdateFilesize() {
 	f.Filesize += int64(f.LastChunksize)
 }
 
+// NewChunk returns a new Chunk object.
+//
+// It ensures that each new chunk has a unique cryptographically secure Nonce.
 func NewChunk() Chunk {
 	return Chunk{Nonce: NewNonce()}
 }
