@@ -5,7 +5,6 @@ import (
 	"errors"
 	"expvar"
 	"fmt"
-	"log"
 	"path"
 	"strings"
 	"sync"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
+	"github.com/golang/glog"
 )
 
 var (
@@ -91,9 +91,11 @@ func (t *Tree) NodeByPath(p string) (Node, error) {
 	defer t.nm.RUnlock()
 	n, ok := t.nodes[p]
 	if !ok || n.Deleted {
-		t.log("known nodes:\n")
-		for _, n := range t.nodes {
-			t.log(fmt.Sprintf("%+v\n", n))
+		if glog.V(5) {
+			glog.Info("known nodes:")
+			for _, n := range t.nodes {
+				glog.Infof("%+v", n)
+			}
 		}
 		return Node{}, fmt.Errorf("no such node: %q", p)
 	}
@@ -176,11 +178,11 @@ func (t *Tree) Update(n Node) {
 	defer t.nm.Unlock()
 	on, ok := t.nodes[n.Filename]
 	if !ok {
-		t.log(fmt.Sprintf("Attempt to update a non-existent node: %+v", n))
+		glog.Warningf("Attempt to update a non-existent node: %+v", n)
 		return
 	}
 	if on.ModifiedTime.After(n.ModifiedTime) {
-		t.log(fmt.Sprintf("Update mtime (%s) older than current Node (%s)", n.ModifiedTime, on.ModifiedTime))
+		glog.V(5).Infof("Update mtime (%s) older than current Node (%s)", n.ModifiedTime, on.ModifiedTime)
 		return
 	}
 	t.nodes[n.Filename] = n
@@ -189,7 +191,7 @@ func (t *Tree) Update(n Node) {
 		dir = strings.TrimSuffix(dir, "/")
 		parent, ok := t.nodes[dir]
 		if !ok {
-			t.log(fmt.Sprintf("Updated node without a parent: %+v", n))
+			glog.Warningf("Updated node without a parent: %+v", n)
 			return
 		}
 		delete(parent.Children, f)
@@ -199,7 +201,7 @@ func (t *Tree) Update(n Node) {
 // Refresh updates the cached view of the Tree by calling ListFiles and
 // processing the result.
 func (t *Tree) Refresh() error {
-	t.log("Begining cache refresh cycle.")
+	glog.Info("Begining cache refresh cycle.")
 	start := time.Now()
 	// key is a string([]byte) representation of the file's SHA2
 	knownNodes := make(map[string]bool)
@@ -207,7 +209,7 @@ func (t *Tree) Refresh() error {
 	if err != nil {
 		return fmt.Errorf("%q ListFiles(): %s", t.client.GetConfig().Provider, err)
 	}
-	t.log(fmt.Sprintf("Found %d file(s) via %s", len(newFiles), t.client.GetConfig().Provider))
+	glog.Infof("Found %d file(s) via %s", len(newFiles), t.client.GetConfig().Provider)
 	// fetch all those files into the local disk cache
 	for _, sha256sum := range newFiles {
 		// check if we have already processed this Node
@@ -219,13 +221,13 @@ func (t *Tree) Refresh() error {
 		f, err := t.client.GetFile(sha256sum)
 		if err != nil {
 			// TODO(asjoyner): if !client.Local()... retry?
-			log.Printf("Failed to fetch file %x: %s", sha256sum, err)
+			glog.Infof("Failed to fetch file %x: %s  (skipping)", sha256sum, err)
 			continue
 		}
 		// unmarshal and populate t.nodes as the shade.files go by
 		file := &shade.File{}
 		if err := file.FromJSON(f); err != nil {
-			log.Printf("%v", err)
+			glog.Warningf("Could not unmarshal file %x: %v", sha256sum, err)
 			continue
 		}
 		node := Node{
@@ -236,7 +238,9 @@ func (t *Tree) Refresh() error {
 			Sha256sum:    sha256sum,
 			Children:     nil,
 		}
-		t.log(fmt.Sprintf("processing node: %+v", node))
+		if glog.V(5) {
+			glog.Infof("processing node: %+v", node)
+		}
 		t.nm.Lock()
 		// TODO(asjoyner): handle file + directory collisions
 		if existing, ok := t.nodes[node.Filename]; ok && existing.ModifiedTime.After(node.ModifiedTime) {
@@ -255,7 +259,7 @@ func (t *Tree) Refresh() error {
 		t.nm.Unlock()
 		knownNodes[string(sha256sum)] = true
 	}
-	t.log(fmt.Sprintf("Refresh complete with %d file(s).", len(knownNodes)))
+	glog.Infof("Refresh complete with %d file(s) in %v.", len(knownNodes), time.Since(start))
 	lastRefreshDurationMs.Set(int64(time.Since(start).Nanoseconds() / 1000))
 	treeNodes.Set(int64(len(knownNodes)))
 	return nil
@@ -265,7 +269,9 @@ func (t *Tree) Refresh() error {
 func (t *Tree) addParents(filepath string) {
 	dir, f := path.Split(filepath)
 	dir = strings.TrimSuffix(dir, "/")
-	t.log(fmt.Sprintf("adding %q as a child of %q", f, dir))
+	if glog.V(5) {
+		glog.Info("adding %q as a child of %q", f, dir)
+	}
 	// TODO(asjoyner): handle file + directory collisions
 	if parent, ok := t.nodes[dir]; !ok {
 		// if the parent node doesn't yet exist, initialize it
@@ -286,16 +292,5 @@ func (t *Tree) periodicRefresh(refresh *time.Ticker) {
 	for {
 		<-refresh.C
 		t.Refresh()
-	}
-}
-
-// Debug causes the client to print helpful message via the log library.
-func (t *Tree) Debug() {
-	t.debug = true
-}
-
-func (t *Tree) log(msg string) {
-	if t.debug {
-		log.Printf("CACHE: %s", msg)
 	}
 }

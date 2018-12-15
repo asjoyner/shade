@@ -129,9 +129,6 @@ func serviceFuse(conn *fuse.Conn, client drive.Client) error {
 	if err != nil {
 		return fmt.Errorf("fuse server initialization failed: %s", err)
 	}
-	if *treeDebug {
-		ffs.TreeDebug()
-	}
 
 	http.HandleFunc("/refresh", func(w http.ResponseWriter, r *http.Request) {
 		ffs.Refresh()

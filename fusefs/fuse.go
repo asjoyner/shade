@@ -2,6 +2,16 @@ package fusefs
 
 // This is a thin layer of glue between the bazil.org/fuse kernel interface
 // and the Shade Drive API.
+//
+// This module uses glog for variable output.  The vmodule levels above 6 get
+// very chatty. Roughly, they contain:
+//  3. writes of file objects to Fuse
+//  4. Drive client reads, refresh timing information
+//  5. one log line per "interesting" fuse operation (open, create, stat)
+//  6. summary stats on some frequent operations (read, writes of chunks)
+//  7. one log line for every operation handled by the fuse API
+//  8. raw data as returned by some interesting operations (readdir)
+//  9. debugging parameters of tricky internal calculations (offsets, etc)
 
 import (
 	"encoding/json"
@@ -19,11 +29,11 @@ import (
 	"time"
 
 	"bazil.org/fuse"
-	_ "bazil.org/fuse/fs/fstestutil" // for fuse.debug
 	"bazil.org/fuse/fuseutil"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
+	"github.com/golang/glog"
 )
 
 var (
@@ -112,7 +122,7 @@ func (h *handle) applyWrite(data []byte, offset int64, client drive.Client) erro
 
 	var dataPtr int64 // tracks bytes read from data into chunks
 	for cn := firstChunk; cn <= lastChunk; cn++ {
-		//fmt.Printf("working chunk %d\n", cn)
+		//glog.V(9).Infof("working chunk %d\n", cn)
 		chunkStart := cn * chunkSize // the position of the chunk in the file
 		var chunkOffset int64        // the start of the write inside this chunk
 		if offset > chunkStart {
@@ -123,15 +133,15 @@ func (h *handle) applyWrite(data []byte, offset int64, client drive.Client) erro
 			return err
 		}
 
-		//fmt.Printf("before copy: %q\n", cb)
+		//glog.V(9).Infof("before copy: %q\n", cb)
 		n := copy(cb[chunkOffset:], data[dataPtr:])
-		//fmt.Printf("post copy: %q\n", cb)
+		//glog.V(9).Infof("post copy: %q\n", cb)
 		dataPtr += int64(n)
 		// determine if we read all of the data, or filled the chunk
 		chunkRemainder := chunkSize - int64(len(cb))
 		dataRemainder := writeSize - dataPtr
 		var appendSize int64
-		//fmt.Printf("dataremaidner: %d chunkRemainder: %d\n", dataRemainder, chunkRemainder)
+		//glog.V(9).Infof("dataremaidner: %d chunkRemainder: %d\n", dataRemainder, chunkRemainder)
 		if dataRemainder > 0 && dataRemainder <= chunkRemainder {
 			appendSize = dataRemainder
 		} else if dataRemainder > 0 && dataRemainder > chunkRemainder {
@@ -140,11 +150,11 @@ func (h *handle) applyWrite(data []byte, offset int64, client drive.Client) erro
 
 		// extend cb if necessary
 		if appendSize > 0 {
-			//fmt.Printf("append[%d:%d] (%q)\n", dataPtr, appendSize, data)
+			//glog.V(9).Infof("append[%d:%d] (%q)\n", dataPtr, appendSize, data)
 			cb = append(cb, data[dataPtr:dataPtr+appendSize]...)
 			dataPtr += appendSize
 		}
-		//fmt.Printf("post extend: %q\n", cb)
+		//glog.V(9).Infof("post extend: %q\n", cb)
 
 		h.dirty[cn] = cb
 	}
@@ -158,7 +168,9 @@ func (sc *Server) Serve() error {
 	for w := 1; w <= *numWorkers; w++ {
 		go func(reqs chan fuse.Request) {
 			for req := range reqs {
-				fuse.Debug(fmt.Sprintf("%+v", req))
+				if glog.V(7) {
+					glog.Infof("%+v", req)
+				}
 				sc.serve(req)
 			}
 			return
@@ -173,7 +185,6 @@ func (sc *Server) Serve() error {
 			return err
 		}
 
-		fuse.Debug(fmt.Sprintf("%+v", req))
 		workRequests <- req
 	}
 	return nil
@@ -189,7 +200,7 @@ func (sc *Server) serve(req fuse.Request) {
 	switch req := req.(type) {
 	default:
 		// ENOSYS means "this server never implements this request."
-		fuse.Debug(fmt.Sprintf("ENOSYS: %+v", req))
+		glog.Warningf("ENOSYS: %+v", req)
 		req.RespondError(fuse.ENOSYS)
 
 	case *fuse.InitRequest:
@@ -203,7 +214,6 @@ func (sc *Server) serve(req fuse.Request) {
 			Files: uint64(sc.tree.NumNodes()),
 			Bsize: blockSize,
 		}
-		fuse.Debug(resp)
 		req.Respond(resp)
 
 	case *fuse.GetattrRequest:
@@ -225,14 +235,15 @@ func (sc *Server) serve(req fuse.Request) {
 		inode := uint64(req.Header.Node)
 		p, err := sc.inode.ToPath(uint64(inode))
 		if err != nil {
-			fuse.Debug(fmt.Sprintf("inode %d: %s", inode, err))
+			glog.Warningf("SetattrRequest for inode %d: %s", inode, err)
 		}
 		n, err := sc.tree.NodeByPath(p)
 		if err != nil {
-			fuse.Debug(fmt.Sprintf("FileByInode(%v): %v", inode, err))
+			glog.Warningf("FileByInode(%v): %v", inode, err)
 			req.RespondError(fuse.EIO)
 			return
 		}
+		glog.Info("Ignoring Setattr for ", p)
 		req.Respond(&fuse.SetattrResponse{Attr: sc.attrFromNode(n, inode)})
 
 	case *fuse.CreateRequest:
@@ -299,7 +310,7 @@ func (sc *Server) nodeByID(inode fuse.NodeID) (Node, error) {
 func (sc *Server) getattr(req *fuse.GetattrRequest) {
 	n, err := sc.nodeByID(req.Header.Node)
 	if err != nil {
-		fuse.Debug(err.Error())
+		glog.Warningf("getattr: sc.nodeById(%d): %s", req.Header.Node, err)
 		req.RespondError(fuse.EIO)
 		return
 	}
@@ -308,7 +319,6 @@ func (sc *Server) getattr(req *fuse.GetattrRequest) {
 	resp := &fuse.GetattrResponse{
 		Attr: sc.attrFromNode(n, uint64(req.Header.Node)),
 	}
-	fuse.Debug(resp)
 	req.Respond(resp)
 }
 
@@ -319,7 +329,7 @@ func (sc *Server) lookup(req *fuse.LookupRequest) {
 	// This request is by inode.  Lookup what filename was assigned to that inode.
 	parentDir, err := sc.inode.ToPath(inode)
 	if err != nil {
-		fuse.Debug(fmt.Sprintf("lookup unassigned inode %d: %s", inode, err))
+		glog.Warningf("lookup of unassigned inode %d: %s", inode, err)
 		req.RespondError(fuse.ENOENT)
 		return
 	}
@@ -327,14 +337,16 @@ func (sc *Server) lookup(req *fuse.LookupRequest) {
 	filename := strings.TrimPrefix(path.Join(parentDir, req.Name), "/")
 	node, err := sc.tree.NodeByPath(filename)
 	if err != nil {
-		fuse.Debug(fmt.Sprintf("Lookup(%v in %v): ENOENT", filename, inode))
+		glog.Warningf("Lookup(%v in %v): ENOENT", filename, inode)
 		req.RespondError(fuse.ENOENT)
 		return
 	}
 	resp.Node = fuse.NodeID(sc.inode.FromPath(filename))
 	resp.EntryValid = *kernelRefresh
 	resp.Attr = sc.attrFromNode(node, inode)
-	fuse.Debug(fmt.Sprintf("Lookup(%v in %v): %+v", req.Name, inode, resp.Node))
+	if glog.V(5) {
+		glog.Infof("Lookup(%v in %v): %+v", req.Name, inode, resp.Node)
+	}
 	req.Respond(resp)
 }
 
@@ -342,7 +354,7 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 	resp := &fuse.ReadResponse{Data: make([]byte, 0, req.Size)}
 	n, err := sc.nodeByID(req.Header.Node)
 	if err != nil {
-		fuse.Debug(fmt.Sprintf("nodeByID(%d): %v", req.Header.Node, err))
+		glog.Warningf("nodeByID(%d): %v", req.Header.Node, err)
 		req.RespondError(fuse.EIO)
 		return
 	}
@@ -359,9 +371,8 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 	for _, name := range children {
 		childPath := strings.TrimPrefix(path.Join(n.Filename, name), "/")
 		c, err := sc.tree.NodeByPath(childPath)
-		//fuse.Debug(fmt.Sprintf("Found child: %+v", c))
 		if err != nil {
-			fuse.Debug(fmt.Sprintf("child: NodeByPath(%v): %v", childPath, err))
+			glog.Warningf("child: NodeByPath(%v): %v", childPath, err)
 			req.RespondError(fuse.EIO)
 			return
 		}
@@ -372,7 +383,9 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 		ci := sc.inode.FromPath(childPath)
 		data = fuse.AppendDirent(data, fuse.Dirent{Inode: ci, Name: name, Type: childType})
 	}
-	fuse.Debug(fmt.Sprintf("ReadDir Response: %s", string(data)))
+	if glog.V(8) {
+		glog.Info("ReadDir Response: %s", string(data))
+	}
 
 	fuseutil.HandleRead(req, resp, data)
 	req.Respond(resp)
@@ -381,16 +394,18 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 func (sc *Server) read(req *fuse.ReadRequest) {
 	h, err := sc.handleByID(req.Handle)
 	if err != nil || h.file == nil {
-		fuse.Debug(fmt.Sprintf("handleByID(%v): %v", req.Handle, err))
+		glog.Warningf("handleByID(%v): %v", req.Handle, err)
 		req.RespondError(fuse.ESTALE)
 		return
 	}
 	f := h.file
-	fuse.Debug(fmt.Sprintf("Read(name: %s, offset: %d, size: %d)", f.Filename, req.Offset, req.Size))
+	if glog.V(6) {
+		glog.Infof("Read(name: %s, offset: %d, size: %d)", f.Filename, req.Offset, req.Size)
+	}
 	chunkSize := int64(f.Chunksize)
 	chunkSums, err := chunksForRead(f, req.Offset, int64(req.Size))
 	if err != nil {
-		fuse.Debug(fmt.Sprintf("chunksForRead(): %s", err))
+		glog.Warningf("chunksForRead(): %s", err)
 		req.RespondError(fuse.EIO)
 		return
 	}
@@ -399,11 +414,10 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 	for _, cs := range chunkSums {
 		chunk, err := sc.client.GetChunk(cs, f)
 		if err != nil {
-			fuse.Debug(fmt.Sprintf("GetChunk(%x): %v", cs, err))
+			glog.Warningf("GetChunk(%x): %v", cs, err)
 			req.RespondError(fuse.EIO)
 			return
 		}
-		// TODO: optionally decrypt chunk
 		allTheBytes = append(allTheBytes, chunk...)
 	}
 
@@ -414,7 +428,7 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 		low = 0
 	}
 	if low > dsize {
-		fuse.Debug(fmt.Sprintf("too-low chunk calculation error (low:%d, dsize:%d): filename: %s, offset:%d, size:%d, filesize:%d", low, dsize, f.Filename, req.Offset, req.Size, f.Filesize))
+		glog.Errorf("too-low chunk calculation error (low:%d, dsize:%d): filename: %s, offset:%d, size:%d, filesize:%d", low, dsize, f.Filename, req.Offset, req.Size, f.Filesize)
 		req.RespondError(fuse.EIO)
 		return
 	}
@@ -424,7 +438,9 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 	}
 	d := allTheBytes[low:high]
 	resp := &fuse.ReadResponse{Data: d}
-	fuse.Debug(fmt.Sprintf("Read resp: %s %d bytes", resp, len(d)))
+	if glog.V(6) {
+		glog.Infof("Read resp: %s %d bytes", resp, len(d))
+	}
 	req.Respond(resp)
 }
 
@@ -470,14 +486,14 @@ func (sc *Server) open(req *fuse.OpenRequest) {
 	// get the shade.File for the node, stuff it in the Handle
 	f, err := sc.tree.FileByNode(n)
 	if err != nil && !req.Dir {
-		fuse.Debug(fmt.Sprintf("FileByNode(%v): %s", n, err))
+		glog.Warningf("FileByNode(%v): %s", n, err)
 		req.RespondError(fuse.ENOENT)
 		return
 	}
 	hID := sc.allocHandle(req.Header.Node, f)
 
 	resp := fuse.OpenResponse{Handle: fuse.HandleID(hID)}
-	fuse.Debug(fmt.Sprintf("Open Response: %+v", resp))
+	glog.V(5).Infof("Open Response: %+v", resp)
 	req.Respond(&resp)
 }
 
@@ -518,10 +534,10 @@ func (sc *Server) release(req *fuse.ReleaseRequest) {
 	sc.hm.Lock()
 	defer sc.hm.Unlock()
 	h := sc.handles[req.Handle]
-	// TODO: Does Flush always get called directly?
 	sc.flush(req.Handle)
 	h.inode = 0
 	req.Respond()
+	glog.V(5).Info("release on req.Handle: %d", req.Handle)
 }
 
 // Allocate handle, corresponding to kernel filehandle, for writes
@@ -553,7 +569,7 @@ func (sc *Server) create(req *fuse.CreateRequest) {
 			Attr:       sc.attrFromNode(n, inode),
 		},
 	}
-	fuse.Debug(fmt.Sprintf("Create(%v in %v): %+v", req.Name, pn.Filename, resp))
+	glog.V(5).Infof("Create(%v in %v): %+v", req.Name, pn.Filename, resp)
 
 	req.Respond(&resp)
 }
@@ -587,7 +603,7 @@ func (sc *Server) mkdir(req *fuse.MkdirRequest) {
 		EntryValid: *kernelRefresh,
 		Attr:       sc.attrFromNode(n, inode),
 	}
-	fuse.Debug(fmt.Sprintf("Mkdir(%v): %+v", req.Name, resp))
+	glog.V(5).Infof("Mkdir(%v): %+v", req.Name, resp)
 	req.Respond(&fuse.MkdirResponse{LookupResponse: resp})
 }
 
@@ -598,7 +614,7 @@ func (sc *Server) remove(req *fuse.RemoveRequest) {
 	// TODO: if allow_other, require uid == invoking uid to allow writes
 	parentdir, err := sc.inode.ToPath(uint64(req.Header.Node))
 	if err != nil {
-		fuse.Debug(fmt.Sprintf("sc.NodeById(%d): %s", req.Header.Node, err))
+		glog.Warningf("sc.NodeById(%d): %s", req.Header.Node, err)
 		req.RespondError(fuse.ENOENT)
 		return
 	}
@@ -616,11 +632,11 @@ func (sc *Server) remove(req *fuse.RemoveRequest) {
 		// ensure the are no children of this node
 		node, err := sc.tree.NodeByPath(filename)
 		if err != nil {
-			fuse.Debug(fmt.Sprintf("sc.NodeById(%d): %s", req.Header.Node, err))
+			glog.Warningf("sc.NodeById(%d): %s", req.Header.Node, err)
 			req.RespondError(fuse.ENOENT)
 		}
 		if len(node.Children) == 0 {
-			fuse.Debug(fmt.Sprintf("sc.NodeById(%d): %s", req.Header.Node, err))
+			glog.Warningf("sc.NodeById(%d): %s", req.Header.Node, err)
 			req.RespondError(syscall.ENOTEMPTY)
 		}
 		node.Sha256sum = nil
@@ -635,15 +651,15 @@ func (sc *Server) remove(req *fuse.RemoveRequest) {
 		for {
 			err := sc.client.PutFile(sum, jm)
 			if err != nil {
-				fuse.Debug(fmt.Sprintf("error storing deleted file %s with sum: %x: %s", filename, sum, err))
+				glog.Errorf("error storing deleted file %s with sum: %x: %s", filename, sum, err)
 				continue
 			}
-			fuse.Debug(fmt.Sprintf("stored file %s with sum: %x", filename, sum))
+			glog.V(5).Infof("stored file %s with sum: %x", filename, sum)
 			break
 		}
 	}
 	// remove Node
-	fuse.Debug(fmt.Sprintf("sc.tree.Update(..%s..)", f.Filename))
+	glog.V(5).Infof("sc.tree.Update(..%s..)", f.Filename)
 	sc.tree.Update(node)
 	req.Respond()
 }
@@ -737,7 +753,7 @@ func (sc *Server) write(req *fuse.WriteRequest) {
 	// TODO: if allow_other, require uid == invoking uid to allow writes
 	h, err := sc.handleByID(req.Handle)
 	if err != nil {
-		fuse.Debug(fmt.Sprintf("handleByID(%v): %v", req.Handle, err))
+		glog.Warningf("handleByID(%v): %v", req.Handle, err)
 		req.RespondError(fuse.ESTALE)
 		return
 	}
@@ -767,14 +783,14 @@ func (sc *Server) flush(hID fuse.HandleID) {
 			lastDirtyChunk = cn
 		}
 	}
-	fuse.Debug(fmt.Sprintf("Chunks length before: %+v", len(h.file.Chunks)))
+	glog.V(8).Infof("Chunks length before: %+v", len(h.file.Chunks))
 	if int64(len(h.file.Chunks)) <= lastDirtyChunk {
 		nc := make([]shade.Chunk, lastDirtyChunk+1, lastDirtyChunk+1)
 		copy(nc, h.file.Chunks)
 		h.file.Chunks = nc
 	}
-	fuse.Debug(fmt.Sprintf("Chunks length: %+v", len(h.file.Chunks)))
-	fuse.Debug(fmt.Sprintf("lastDirtyChunk: %+v", lastDirtyChunk))
+	glog.V(8).Infof("Chunks length: %+v", len(h.file.Chunks))
+	glog.V(8).Infof("lastDirtyChunk: %+v", lastDirtyChunk)
 	for cn, dirtyChunk := range h.dirty {
 		sum := shade.Sum(dirtyChunk)
 		h.file.Chunks[cn].Sha256 = sum
@@ -785,11 +801,13 @@ func (sc *Server) flush(hID fuse.HandleID) {
 		for {
 			err := sc.client.PutChunk(sum, dirtyChunk, h.file)
 			if err != nil {
-				fuse.Debug(fmt.Sprintf("error storing chunk with sum: %x: %s", sum, err))
+				glog.Errorf("error storing chunk with sum: %x: %s", sum, err)
 				// TODO(asjoyner): exponential backoff?  retry limit?
 				continue
 			}
-			fuse.Debug(fmt.Sprintf("stored chunk with sum: %x", sum))
+			if glog.V(6) {
+				glog.Infof("stored chunk with sum: %x", sum)
+			}
 			break
 		}
 	}
@@ -805,10 +823,10 @@ func (sc *Server) flush(hID fuse.HandleID) {
 	for {
 		err := sc.client.PutFile(sum, jm)
 		if err != nil {
-			fuse.Debug(fmt.Sprintf("error storing file %s with sum: %x: %s", h.file.Filename, sum, err))
+			glog.Errorf("error storing file %s with sum: %x: %s", h.file.Filename, sum, err)
 			continue
 		}
-		fuse.Debug(fmt.Sprintf("stored file %s with sum: %x", h.file.Filename, sum))
+		glog.V(3).Infof("stored file %s with sum: %x", h.file.Filename, sum)
 		break
 	}
 
@@ -826,11 +844,6 @@ func (sc *Server) flush(hID fuse.HandleID) {
 	sc.handles[hID] = h
 }
 
-// TreeDebug enables debug logging for operations done by the Tree.
-func (sc *Server) TreeDebug() {
-	sc.tree.Debug()
-}
-
 func chunksForRead(f *shade.File, offset, size int64) ([][]byte, error) {
 	if offset < 0 || size < 0 {
 		return nil, fmt.Errorf("negative offset and size are unsupported")
@@ -845,7 +858,7 @@ func chunksForRead(f *shade.File, offset, size int64) ([][]byte, error) {
 	var chunks [][]byte
 	for i := firstChunk; i < lastChunk; i++ {
 		if i > int64(len(f.Chunks)-1) {
-			fuse.Debug(fmt.Sprintf("no chunk %d for read at %d (%d bytes) in %v", lastChunk, offset, size, f))
+			glog.Errorf("no chunk %d for read at %d (%d bytes) in %v", lastChunk, offset, size, f)
 			continue
 		}
 		chunks = append(chunks, f.Chunks[i].Sha256)
