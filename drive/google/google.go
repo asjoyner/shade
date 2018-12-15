@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"sync"
+	"time"
 
 	"github.com/golang/glog"
 
@@ -117,10 +118,10 @@ func (s *Drive) ListFiles() ([][]byte, error) {
 	return resp, nil
 }
 
-// GetFile retrieves a chunk with a given SHA-256 sum
+// GetFile retrieves a chunk with a given SHA-256 sum.
 func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
 	getFileReq.Add(1)
-	return s.GetChunk(sha256sum, nil)
+	return s.retrieve(sha256sum)
 }
 
 // PutFile writes the metadata describing a new file.
@@ -144,9 +145,17 @@ func (s *Drive) PutFile(sha256sum, content []byte) error {
 	return nil
 }
 
-// GetChunk retrieves a chunk with a given SHA-256 sum
+// GetChunk retrieves a chunk with a given SHA-256 sum.
 func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 	getChunkReq.Add(1)
+	return s.retrieve(sha256sum)
+}
+
+// retrieve is the internal implementation that fetches bytes by sha256sum.  It
+// is called by both GetFile and GetChunk.
+func (s *Drive) retrieve(sha256sum []byte) ([]byte, error) {
+	glog.V(3).Infof("Fetching %x", sha256sum)
+	start := time.Now()
 	s.mu.RLock()
 	fileID, ok := s.files[string(sha256sum)]
 	s.mu.RUnlock()
@@ -186,6 +195,7 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 		return nil, fmt.Errorf("couldn't read chunk %v: %v", filename, err)
 	}
 	getChunkSuccess.Add(1)
+	glog.V(3).Infof("Fetched %x in %v", sha256sum, time.Since(start))
 	return chunk, nil
 }
 
