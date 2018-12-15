@@ -14,6 +14,7 @@ package fusefs
 //  9. debugging parameters of tricky internal calculations (offsets, etc)
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -438,10 +439,36 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 	}
 	d := allTheBytes[low:high]
 	resp := &fuse.ReadResponse{Data: d}
-	if glog.V(6) {
-		glog.Infof("Read resp: %s %d bytes", resp, len(d))
+	if glog.V(8) {
+		glog.Infof("Read resp: %+v %d bytes", resp, len(d))
 	}
 	req.Respond(resp)
+
+	// After responding to the read request, use this gorouting to consider
+	// prefetching the next chunk.  The chunk should be prefetched early (so it
+	// has time to complete before the chunk is needed), but not when the very
+	// first few bytes of the file are read, so that magic(5) reads (eg. file)
+	// and other attempts to identify the file don't cause unnecessary chunk
+	// prefetching.  To satisfy, we prefetch whenever the 8096 byte is read.
+	if low < 8096 && high > 8096 {
+		lastChunkJustRead := chunkSums[len(chunkSums)-1]
+		var prefetchChunk int
+		for i, c := range f.Chunks {
+			if bytes.Equal(c.Sha256, lastChunkJustRead) {
+				prefetchChunk = i + 1
+			}
+		}
+		if prefetchChunk > len(f.Chunks) {
+			glog.V(3).Info("There is no next chunk to prefetch.")
+			return
+		}
+		cs := f.Chunks[prefetchChunk].Sha256
+		glog.V(3).Infof("Prefetching the next chunk: %x", cs)
+		_, err := sc.client.GetChunk(cs, f)
+		if err != nil {
+			glog.Warningf("prefetch GetChunk(%x): %v", cs, err)
+		}
+	}
 }
 
 func (sc *Server) attrFromNode(node Node, i uint64) fuse.Attr {
@@ -536,8 +563,8 @@ func (sc *Server) release(req *fuse.ReleaseRequest) {
 	h := sc.handles[req.Handle]
 	sc.flush(req.Handle)
 	h.inode = 0
+	glog.V(5).Infof("release on req.Handle: %+v", req.Handle)
 	req.Respond()
-	glog.V(5).Info("release on req.Handle: %d", req.Handle)
 }
 
 // Allocate handle, corresponding to kernel filehandle, for writes
