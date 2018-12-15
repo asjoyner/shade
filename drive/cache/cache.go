@@ -163,7 +163,7 @@ func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 			s.log(fmt.Sprintf("Chunk %x not found in %q: %s", sha256sum, client.GetConfig().Provider, err))
 			continue
 		}
-		s.files <- refreshReq{sha256sum: sha256sum, content: chunk, f: f}
+		s.chunks <- refreshReq{sha256sum: sha256sum, content: chunk, f: f}
 		return chunk, nil
 	}
 	return nil, errors.New("chunk not found")
