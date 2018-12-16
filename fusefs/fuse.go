@@ -35,11 +35,13 @@ import (
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 	"github.com/golang/glog"
+	"github.com/jpillora/backoff"
 )
 
 var (
 	kernelRefresh = flag.Duration("kernel-refresh", time.Minute, "How long the kernel should cache metadata entries.")
 	numWorkers    = flag.Int("numFuseWorkers", 20, "The number of goroutines to service fuse requests.")
+	maxRetries    = flag.Int("maxRetries", 10, "The number of times to try to write a chunk to persistent storage.")
 )
 
 // DefaultChunkSizeBytes defines the default for newly created shade.File(s)
@@ -825,11 +827,18 @@ func (sc *Server) flush(hID fuse.HandleID) {
 		if cn+1 == int64(len(h.file.Chunks)) {
 			h.file.LastChunksize = len(dirtyChunk)
 		}
+		numRetries := 0
+		b := &backoff.Backoff{Factor: 4}
 		for {
+			numRetries++
 			err := sc.client.PutChunk(sum, dirtyChunk, h.file)
 			if err != nil {
-				glog.Errorf("error storing chunk with sum: %x: %s", sum, err)
-				// TODO(asjoyner): exponential backoff?  retry limit?
+				glog.Errorf("error storing chunk with sum (retry %d): %x: %s", numRetries, sum, err)
+				if numRetries >= *maxRetries {
+					glog.Errorf("aborting write, maximum retries exceeded.")
+					break
+				}
+				time.Sleep(b.Duration())
 				continue
 			}
 			if glog.V(6) {
