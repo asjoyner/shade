@@ -16,7 +16,8 @@ import (
 )
 
 var (
-	treeNodes             = expvar.NewInt("treeNodes")
+	treeNodesExpvar       = expvar.NewInt("treeNodes")
+	knownNodesExpvar      = expvar.NewInt("knownNodes")
 	lastRefreshDurationMs = expvar.NewInt("lastRefreshDurationMs")
 )
 
@@ -261,7 +262,8 @@ func (t *Tree) Refresh() error {
 	}
 	glog.Infof("Refresh complete with %d file(s) in %v.", len(knownNodes), time.Since(start))
 	lastRefreshDurationMs.Set(int64(time.Since(start).Nanoseconds() / 1000))
-	treeNodes.Set(int64(len(knownNodes)))
+	knownNodesExpvar.Set(int64(len(knownNodes)))
+	treeNodesExpvar.Set(int64(len(t.nodes)))
 	return nil
 }
 
