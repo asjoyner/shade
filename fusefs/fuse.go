@@ -462,7 +462,7 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 				prefetchChunk = i + 1
 			}
 		}
-		if prefetchChunk > len(f.Chunks) {
+		if prefetchChunk >= len(f.Chunks) {
 			glog.V(3).Info("There is no next chunk to prefetch.")
 			return
 		}
