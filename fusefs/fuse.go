@@ -47,6 +47,10 @@ var (
 // DefaultChunkSizeBytes defines the default for newly created shade.File(s)
 var DefaultChunkSizeBytes = 16 * 1024 * 1024
 
+// prefetchByte is the byte that, if it is read, we assume the next chunk will
+// also be read, and go ahead and fetch the next chunk to warm the cache.
+var prefetchByte = DefaultChunkSizeBytes / 10
+
 const blockSize uint32 = 4096
 
 // Server holds the state about the fuse connection
@@ -453,8 +457,9 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 	// has time to complete before the chunk is needed), but not when the very
 	// first few bytes of the file are read, so that magic(5) reads (eg. file)
 	// and other attempts to identify the file don't cause unnecessary chunk
-	// prefetching.  To satisfy, we prefetch whenever the 8096 byte is read.
-	if low < 8096 && high > 8096 {
+	// prefetching.  To satisfy, we prefetch whenever the byte which is 10% of
+	// the chunksize is read.
+	if low < prefetchByte && high > prefetchByte {
 		lastChunkJustRead := chunkSums[len(chunkSums)-1]
 		var prefetchChunk int
 		for i, c := range f.Chunks {
