@@ -49,7 +49,7 @@ var DefaultChunkSizeBytes = 16 * 1024 * 1024
 
 // prefetchByte is the byte that, if it is read, we assume the next chunk will
 // also be read, and go ahead and fetch the next chunk to warm the cache.
-var prefetchByte = DefaultChunkSizeBytes / 10
+var prefetchByte = int64(DefaultChunkSizeBytes / 10)
 
 const blockSize uint32 = 4096
 
