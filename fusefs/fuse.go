@@ -103,6 +103,7 @@ func (h *handle) chunkBytes(chunkNum int64, client drive.Client) ([]byte, error)
 	if !ok { // no chunk data at this offset (yet)
 		return make([]byte, 0), nil
 	}
+	glog.V(4).Infof("Fetching clean chunk to be modified: %x", cleanChunk.Sha256)
 	cb, err := client.GetChunk(cleanChunk.Sha256, h.file)
 	if err != nil {
 		return nil, err
@@ -415,6 +416,7 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 
 	var allTheBytes []byte
 	for _, cs := range chunkSums {
+		//glog.V(4).Infof("Fetching chunk: %x", cs)
 		chunk, err := sc.client.GetChunk(cs, f)
 		if err != nil {
 			glog.Warningf("GetChunk(%x): %v", cs, err)
@@ -465,7 +467,7 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 			return
 		}
 		cs := f.Chunks[prefetchChunk].Sha256
-		glog.V(3).Infof("Prefetching the next chunk: %x", cs)
+		glog.V(4).Infof("Prefetching the next chunk: %x", cs)
 		_, err := sc.client.GetChunk(cs, f)
 		if err != nil {
 			glog.Warningf("prefetch GetChunk(%x): %v", cs, err)
