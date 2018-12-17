@@ -448,7 +448,7 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 	}
 	req.Respond(resp)
 
-	// After responding to the read request, use this gorouting to consider
+	// After responding to the read request, use this goroutine to consider
 	// prefetching the next chunk.  The chunk should be prefetched early (so it
 	// has time to complete before the chunk is needed), but not when the very
 	// first few bytes of the file are read, so that magic(5) reads (eg. file)
