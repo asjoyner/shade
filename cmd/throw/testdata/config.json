@@ -1,0 +1,8 @@
+{
+  "Provider": "local",
+  "Write": true,
+  "MaxFiles": 100000,
+  "MaxChunkBytes": 50000000000,
+  "FileParentID": "testdata/got/files",
+  "ChunkParentID": "testdata/got/chunks"
+}
