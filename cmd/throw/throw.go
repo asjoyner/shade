@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"sync"
+	"time"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/config"
@@ -54,6 +55,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "could not initialize clients: %s\n", err)
 		os.Exit(1)
 	}
+
+	start := time.Now()
 
 	// initialize client
 	client, err := drive.NewClient(config)
@@ -133,4 +136,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "manifest upload failed: %s\n", err)
 		os.Exit(1)
 	}
+
+	elapsed := time.Since(start)
+	size := manifest.Filesize / 1024 / 1024
+	MBps := size / elapsed.Nanoseconds() / 1000000
+	fmt.Printf("Uploaded %d MB in %s at %dMB/s.\n", size, elapsed, MBps)
 }
