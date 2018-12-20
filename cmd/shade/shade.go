@@ -12,6 +12,7 @@ import (
 	"time"
 
 	_ "expvar"
+	_ "net/http/pprof"
 
 	"bazil.org/fuse"
 
