@@ -272,7 +272,7 @@ func (t *Tree) addParents(filepath string) {
 	dir, f := path.Split(filepath)
 	dir = strings.TrimSuffix(dir, "/")
 	if glog.V(5) {
-		glog.Info("adding %q as a child of %q", f, dir)
+		glog.Infof("adding %q as a child of %q", f, dir)
 	}
 	// TODO(asjoyner): handle file + directory collisions
 	if parent, ok := t.nodes[dir]; !ok {

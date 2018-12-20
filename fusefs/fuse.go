@@ -392,7 +392,7 @@ func (sc *Server) readDir(req *fuse.ReadRequest) {
 		data = fuse.AppendDirent(data, fuse.Dirent{Inode: ci, Name: name, Type: childType})
 	}
 	if glog.V(8) {
-		glog.Info("ReadDir Response: %s", string(data))
+		glog.Info("ReadDir Response: ", string(data))
 	}
 
 	fuseutil.HandleRead(req, resp, data)
