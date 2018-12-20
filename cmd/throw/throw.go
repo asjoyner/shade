@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"sync"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/config"
@@ -26,7 +27,14 @@ import (
 var (
 	defaultConfig = path.Join(shade.ConfigDir(), "config.json")
 	configPath    = flag.String("config", defaultConfig, "shade config file")
+	numWorkers    = flag.Int("numUploaders", 20, "The number of goroutines to upload chunks in parallel.")
 )
+
+type chunkToGo struct {
+	chunk      shade.Chunk
+	chunkbytes []byte
+	manifest   *shade.File
+}
 
 func main() {
 	flag.Usage = func() {
@@ -53,6 +61,23 @@ func main() {
 		log.Fatalf("could not initialize client: %s\n", err)
 	}
 
+	// initialize the goroutines to upload chunks
+	uploadRequests := make(chan chunkToGo)
+	var workers sync.WaitGroup
+	workers.Add(*numWorkers)
+	for w := 1; w <= *numWorkers; w++ {
+		go func(reqs chan chunkToGo) {
+			for r := range reqs {
+				if err := client.PutChunk(r.chunk.Sha256, r.chunkbytes, r.manifest); err != nil {
+					fmt.Fprintf(os.Stderr, "chunk upload failed: %s\n", err)
+					os.Exit(1)
+				}
+			}
+			workers.Done()
+			return
+		}(uploadRequests)
+	}
+
 	filename := flag.Arg(0)
 
 	manifest := shade.NewFile(flag.Arg(1))
@@ -63,10 +88,12 @@ func main() {
 		os.Exit(3)
 	}
 
-	chunkbytes := make([]byte, manifest.Chunksize)
 	for {
-		// Initialize chunk each pass, to ensure each chunk uses a unique nonce
+		// Initialize chunk, to ensure each chunk uses a unique nonce
 		chunk := shade.NewChunk()
+		chunk.Index = len(manifest.Chunks)
+		// Initialize chunkbytes, so it's safe for concurrent access later
+		chunkbytes := make([]byte, manifest.Chunksize)
 
 		// Read a chunk
 		len, err := fh.Read(chunkbytes)
@@ -90,13 +117,10 @@ func main() {
 		manifest.Chunks = append(manifest.Chunks, chunk)
 
 		// upload the chunk
-		if err := client.PutChunk(chunk.Sha256, chunkbytes, manifest); err != nil {
-			fmt.Fprintf(os.Stderr, "chunk upload failed: %s\n", err)
-			os.Exit(1)
-		}
-
-		chunk.Index++
+		uploadRequests <- chunkToGo{chunk, chunkbytes, manifest}
 	}
+	close(uploadRequests)
+	workers.Wait()
 
 	jm, err := json.Marshal(manifest)
 	if err != nil {
