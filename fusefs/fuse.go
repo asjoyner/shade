@@ -35,6 +35,7 @@ import (
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 	"github.com/golang/glog"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/jpillora/backoff"
 )
 
@@ -42,16 +43,23 @@ var (
 	kernelRefresh = flag.Duration("kernel-refresh", time.Minute, "How long the kernel should cache metadata entries.")
 	numWorkers    = flag.Int("numFuseWorkers", 20, "The number of goroutines to service fuse requests.")
 	maxRetries    = flag.Int("maxRetries", 10, "The number of times to try to write a chunk to persistent storage.")
+
+	// DefaultChunkSizeBytes defines the default for newly created shade.File(s)
+	DefaultChunkSizeBytes = 16 * 1024 * 1024
+
+	// prefetchByte is the byte that, if it is read, we assume the next chunk will
+	// also be read, and go ahead and fetch the next chunk to warm the cache.
+	prefetchByte = int64(DefaultChunkSizeBytes / 10)
+
+	// chunksPerHandle defines how many chunks to keep in the LRU of an open filehandle.
+	// This avoids calling Drive.GetChunk() on every 4k read, because it makes a copy.
+	// To keep sequential reads from consuming a lot of CPU doing memory copies,
+	// there should be room in the LRU for the current chunk, and the next
+	// (prefetched) chunk.
+	chunksPerHandle = 3
+
+	blockSize uint32 = 4096
 )
-
-// DefaultChunkSizeBytes defines the default for newly created shade.File(s)
-var DefaultChunkSizeBytes = 16 * 1024 * 1024
-
-// prefetchByte is the byte that, if it is read, we assume the next chunk will
-// also be read, and go ahead and fetch the next chunk to warm the cache.
-var prefetchByte = int64(DefaultChunkSizeBytes / 10)
-
-const blockSize uint32 = 4096
 
 // Server holds the state about the fuse connection
 type Server struct {
@@ -95,11 +103,12 @@ type handle struct {
 	file   *shade.File
 	chunks map[int64]shade.Chunk
 	dirty  map[int64][]byte
+	cache  *lru.Cache
 }
 
 // return the current bytes of a chunk
 // TODO: write a test for this
-func (h *handle) chunkBytes(chunkNum int64, client drive.Client) ([]byte, error) {
+func (h *handle) chunkBytesForWrite(chunkNum int64, client drive.Client) ([]byte, error) {
 	if dirtyChunk, ok := h.dirty[chunkNum]; ok {
 		return dirtyChunk, nil
 	}
@@ -107,12 +116,22 @@ func (h *handle) chunkBytes(chunkNum int64, client drive.Client) ([]byte, error)
 	if !ok { // no chunk data at this offset (yet)
 		return make([]byte, 0), nil
 	}
-	glog.V(4).Infof("Fetching clean chunk to be modified: %x", cleanChunk.Sha256)
-	cb, err := client.GetChunk(cleanChunk.Sha256, h.file)
-	if err != nil {
-		return nil, err
+	var origChunk []byte
+	var err error
+	if cbi, ok := h.cache.Get(string(cleanChunk.Sha256)); ok {
+		origChunk = cbi.([]byte)
+	} else {
+		glog.V(4).Infof("Fetching clean chunk to be modified: %x", cleanChunk.Sha256)
+		origChunk, err = client.GetChunk(cleanChunk.Sha256, h.file)
+		if err != nil {
+			return nil, err
+		}
+		h.cache.Add(string(cleanChunk.Sha256), origChunk)
 	}
-	return cb, nil
+	chunkCopy := make([]byte, len(origChunk))
+	copy(chunkCopy, origChunk)
+	//glog.V(9).Infof("returning copied chunk: %s", chunkCopy)
+	return chunkCopy, nil
 }
 
 // applyWrite takes data, at an offset, and applies it to the open file as
@@ -136,7 +155,7 @@ func (h *handle) applyWrite(data []byte, offset int64, client drive.Client) erro
 		if offset > chunkStart {
 			chunkOffset = offset - chunkStart
 		}
-		cb, err := h.chunkBytes(cn, client)
+		cb, err := h.chunkBytesForWrite(cn, client)
 		if err != nil {
 			return err
 		}
@@ -420,13 +439,18 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 
 	var allTheBytes []byte
 	for _, cs := range chunkSums {
-		//glog.V(4).Infof("Fetching chunk: %x", cs)
+		if cbi, ok := h.cache.Get(string(cs)); ok {
+			allTheBytes = append(allTheBytes, cbi.([]byte)...)
+			continue
+		}
+		glog.V(5).Infof("Fetching chunk for read into handle cache: %x", cs)
 		chunk, err := sc.client.GetChunk(cs, f)
 		if err != nil {
 			glog.Warningf("GetChunk(%x): %v", cs, err)
 			req.RespondError(fuse.EIO)
 			return
 		}
+		h.cache.Add(string(cs), chunk)
 		allTheBytes = append(allTheBytes, chunk...)
 	}
 
@@ -473,10 +497,11 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 		}
 		cs := f.Chunks[prefetchChunk].Sha256
 		glog.V(4).Infof("Prefetching the next chunk: %x", cs)
-		_, err := sc.client.GetChunk(cs, f)
+		cb, err := sc.client.GetChunk(cs, f)
 		if err != nil {
 			glog.Warningf("prefetch GetChunk(%x): %v", cs, err)
 		}
+		h.cache.Add(string(cs), cb)
 	}
 }
 
@@ -526,7 +551,12 @@ func (sc *Server) open(req *fuse.OpenRequest) {
 		req.RespondError(fuse.ENOENT)
 		return
 	}
-	hID := sc.allocHandle(req.Header.Node, f)
+	hID, err := sc.allocHandle(req.Header.Node, f)
+	if err != nil {
+		glog.Errorf("allocating handle for %s: %s", n.Filename, err)
+		req.RespondError(fuse.EIO)
+		return
+	}
 
 	resp := fuse.OpenResponse{Handle: fuse.HandleID(hID)}
 	glog.V(5).Infof("Open Response: %+v", resp)
@@ -534,10 +564,14 @@ func (sc *Server) open(req *fuse.OpenRequest) {
 }
 
 // allocate a kernel file handle for the requested inode
-func (sc *Server) allocHandle(inode fuse.NodeID, f *shade.File) uint64 {
+func (sc *Server) allocHandle(inode fuse.NodeID, f *shade.File) (uint64, error) {
 	var hID uint64
 	var found bool
+	var err error
 	h := handle{inode: inode, file: f, dirty: make(map[int64][]byte)}
+	if h.cache, err = lru.New(int(chunksPerHandle)); err != nil {
+		return 0, fmt.Errorf("initializing chunk lru: %s", err)
+	}
 	sc.hm.Lock()
 	defer sc.hm.Unlock()
 	for i, ch := range sc.handles {
@@ -552,7 +586,7 @@ func (sc *Server) allocHandle(inode fuse.NodeID, f *shade.File) uint64 {
 		hID = uint64(len(sc.handles))
 		sc.handles = append(sc.handles, h)
 	}
-	return hID
+	return hID, nil
 }
 
 // Lookup a handleID by its NodeID
@@ -590,7 +624,12 @@ func (sc *Server) create(req *fuse.CreateRequest) {
 	// create file object
 	file := shade.NewFile(fn)
 	// create handle
-	hID := sc.allocHandle(fuse.NodeID(inode), file)
+	hID, err := sc.allocHandle(fuse.NodeID(inode), file)
+	if err != nil {
+		glog.Errorf("allocating handle for %s: %s", fn, err)
+		req.RespondError(fuse.EIO)
+		return
+	}
 
 	// Respond to tell the fuse kernel module about the file
 	resp := fuse.CreateResponse{
@@ -901,8 +940,9 @@ func chunksForRead(f *shade.File, offset, size int64) ([][]byte, error) {
 	var chunks [][]byte
 	for i := firstChunk; i < lastChunk; i++ {
 		if i > int64(len(f.Chunks)-1) {
-			glog.Errorf("no chunk %d for read at %d (%d bytes) in %v", lastChunk, offset, size, f)
-			continue
+			// the lastChunk calculation can overestimate with small chunk sizes or
+			// very large read windows
+			break
 		}
 		chunks = append(chunks, f.Chunks[i].Sha256)
 	}

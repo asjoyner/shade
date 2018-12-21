@@ -18,6 +18,8 @@ import (
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
 	"github.com/asjoyner/shade/drive/memory"
+	"github.com/golang/glog"
+	lru "github.com/hashicorp/golang-lru"
 
 	"bazil.org/fuse"
 )
@@ -26,7 +28,7 @@ func init() {
 	// This is helpful when the tests fail.
 	//fstestutil.DebugByDefault()
 	// Exercise chunk boundaries with smaller file sizes.
-	DefaultChunkSizeBytes = 5 * 1024 * 1024
+	DefaultChunkSizeBytes = 5 * 1024
 }
 
 // TestFuseRead initializes a series of random chunks of data, calculates a
@@ -41,7 +43,7 @@ func TestFuseRead(t *testing.T) {
 	}
 	defer tearDownDir(mountPoint)
 
-	t.Logf("Mounting fuse filesystem at: %s", mountPoint)
+	glog.Infof("Mounting fuse filesystem at: %s", mountPoint)
 	client, ffs, err := setupFuse(t, mountPoint)
 	if err != nil {
 		t.Fatalf("could not mount fuse: %s", err)
@@ -95,7 +97,7 @@ func TestFuseRead(t *testing.T) {
 			t.Errorf("failed to PutFile \"%x\": %s", fileSum[:], err)
 		}
 		i++
-		t.Logf("Added to drive.Client %d: %s\n", i, filename)
+		glog.Infof("Added to drive.Client %d: %s\n", i, filename)
 	}
 
 	// double check that the client is sane
@@ -106,12 +108,12 @@ func TestFuseRead(t *testing.T) {
 	if nf := len(files); nf != nc {
 		t.Fatalf("incomplete file set in client, want: %d, got: %d", nc, nf)
 	}
-	t.Logf("There are %d files known to the drive.Client.", nc)
+	glog.Infof("There are %d files known to the drive.Client.", nc)
 
 	if err := ffs.Refresh(); err != nil {
 		t.Fatalf("failed to refresh fuse fileserver: %s", err)
 	}
-	t.Logf("Drive client refreshed successfully.")
+	glog.Infof("Drive client refreshed successfully.")
 
 	seen := make(map[string]bool)
 	visit := func(path string, f os.FileInfo, err error) error {
@@ -121,7 +123,7 @@ func TestFuseRead(t *testing.T) {
 		return nil
 	}
 
-	t.Logf("Attempting to walk the filesystem.")
+	glog.Infof("Attempting to walk the filesystem.")
 	if err := filepath.Walk(mountPoint, visit); err != nil {
 		t.Fatalf("filepath.Walk() returned %v", err)
 	}
@@ -154,11 +156,11 @@ func TestFuseRoundtrip(t *testing.T) {
 
 	maxFileSizeBytes := int64(DefaultChunkSizeBytes * 3)
 	nf := 20 // number of files
-	t.Logf("DefaultChunkSizeBytes: %d\n", DefaultChunkSizeBytes)
-	t.Logf("maxFileSizeBytes: %d\n", maxFileSizeBytes)
+	glog.Infof("DefaultChunkSizeBytes: %d\n", DefaultChunkSizeBytes)
+	glog.Infof("maxFileSizeBytes: %d\n", maxFileSizeBytes)
 
 	// Generate some random file contents
-	t.Logf("Generating Random test data...\n")
+	glog.Infof("Generating Random test data...\n")
 	testFiles := make(map[string][]byte, nf)
 	for i := 0; i < nf; i++ {
 		fileSize, err := rand.Int(rand.Reader, big.NewInt(maxFileSizeBytes))
@@ -178,13 +180,13 @@ func TestFuseRoundtrip(t *testing.T) {
 		if err := os.MkdirAll(path.Dir(filename), 0700); err != nil {
 			t.Fatalf(err.Error())
 		}
-		t.Logf("Writing %d bytes to %s\n", len(chunk), filename)
+		glog.Infof("Writing %d bytes to %s\n", len(chunk), filename)
 		start := time.Now()
 		if err := ioutil.WriteFile(filename, chunk, 0400); err != nil {
 			t.Fatalf(err.Error())
 		}
 		elapsed := time.Since(start)
-		t.Logf("Took %s at %0.2fMB/s.\n", elapsed, float64(len(chunk))/1e6/elapsed.Seconds())
+		glog.Infof("Took %s at %0.2fMB/s.\n", elapsed, float64(len(chunk))/1e6/elapsed.Seconds())
 	}
 
 	// Validate all the files have the right contents
@@ -196,7 +198,7 @@ func TestFuseRoundtrip(t *testing.T) {
 		return nil
 	}
 
-	t.Logf("Attempting to walk the filesystem.\n")
+	glog.Infof("Attempting to walk the filesystem.\n")
 	if err := filepath.Walk(mountPoint, visit); err != nil {
 		t.Fatalf("filepath.Walk() returned %v", err)
 	}
@@ -213,7 +215,7 @@ func TestFuseRoundtrip(t *testing.T) {
 	// Delete all the test files, ensure they disappear.
 	for stringSum := range testFiles {
 		filename := path.Join(mountPoint, pathFromStringSum(stringSum))
-		t.Logf("Removing %s\n", filename)
+		glog.Infof("Removing %s\n", filename)
 		if err := os.Remove(filename); err != nil {
 			t.Errorf(err.Error())
 		}
@@ -331,7 +333,7 @@ func checkPath(t *testing.T, testChunks map[string][]byte, seen map[string]bool,
 		return err
 	}
 	if !f.IsDir() {
-		t.Logf("Seen in FS %d: %s\n", len(seen)+1, path)
+		glog.Infof("Seen in FS %d: %s\n", len(seen)+1, path)
 		contents, err := ioutil.ReadFile(path)
 		if err != nil {
 			t.Error(err)
@@ -353,6 +355,7 @@ func checkPath(t *testing.T, testChunks map[string][]byte, seen map[string]bool,
 		}
 		seen[string(chs)] = true
 	}
+	glog.Infof("File is as expected: %s", path)
 	return nil
 }
 
@@ -508,7 +511,7 @@ func TestApplyWrite(t *testing.T) {
 		},
 	}
 	for i, ts := range testSet {
-		//fmt.Printf("test %d\n", i)
+		glog.Infof("test %d", i)
 		h := handle{
 			file: &shade.File{
 				Chunksize: 8,
@@ -516,16 +519,18 @@ func TestApplyWrite(t *testing.T) {
 			chunks: ts.before,
 			dirty:  make(map[int64][]byte),
 		}
+		if h.cache, err = lru.New(int(2)); err != nil {
+			t.Fatalf("initializing chunk lru: %s", err)
+		}
 		h.applyWrite(ts.data, ts.offset, mc)
 		if len(h.dirty) != len(ts.after) {
 			t.Fatalf("test %d: applyWrite(%s, %d..), wrong number of chunks, want: %d, got: %d", i, ts.data, ts.offset, len(ts.after), len(h.dirty))
 		}
-		for i := 0; i < len(h.dirty); i++ {
-			i := int64(i)
-			if !bytes.Equal(ts.after[i], h.dirty[i]) {
-				t.Errorf("applyWrite(%q, %d..), chunk %d did not match.", ts.data, ts.offset, i)
-				// This Errorf can be helpful, but is very verbose.
-				t.Errorf("want: %q, got: %q", ts.after[i], h.dirty[i])
+		for cn := 0; cn < len(h.dirty); cn++ {
+			cn := int64(cn)
+			if !bytes.Equal(ts.after[cn], h.dirty[cn]) {
+				t.Errorf("test %d: applyWrite(%q, %d..), chunk %d did not match.", i, ts.data, ts.offset, cn)
+				t.Errorf("want: %q, got: %q", ts.after[cn], h.dirty[cn])
 			}
 		}
 	}
