@@ -16,6 +16,8 @@ import (
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/config"
 	"github.com/asjoyner/shade/drive"
+	"github.com/golang/glog"
+	"github.com/jpillora/backoff"
 
 	_ "github.com/asjoyner/shade/drive/amazon"
 	_ "github.com/asjoyner/shade/drive/cache"
@@ -29,6 +31,7 @@ var (
 	defaultConfig = path.Join(shade.ConfigDir(), "config.json")
 	configPath    = flag.String("config", defaultConfig, "shade config file")
 	numWorkers    = flag.Int("numUploaders", 20, "The number of goroutines to upload chunks in parallel.")
+	maxRetries    = flag.Int("maxRetries", 10, "The number of times to try to write a chunk to persistent storage.")
 )
 
 type chunkToGo struct {
@@ -71,9 +74,21 @@ func main() {
 	for w := 1; w <= *numWorkers; w++ {
 		go func(reqs chan chunkToGo) {
 			for r := range reqs {
-				if err := client.PutChunk(r.chunk.Sha256, r.chunkbytes, r.manifest); err != nil {
-					fmt.Fprintf(os.Stderr, "chunk upload failed: %s\n", err)
-					os.Exit(1)
+				numRetries := 0
+				b := &backoff.Backoff{Factor: 4}
+				for {
+					numRetries++
+					if err := client.PutChunk(r.chunk.Sha256, r.chunkbytes, r.manifest); err != nil {
+						if numRetries >= *maxRetries {
+							fmt.Fprintf(os.Stderr, "chunk upload failed: %s\n", err)
+							os.Exit(1)
+						}
+						glog.Errorf("chunk write error, will retry: %s", err)
+						time.Sleep(b.Duration())
+						continue
+					}
+					b.Reset()
+					break
 				}
 			}
 			workers.Done()

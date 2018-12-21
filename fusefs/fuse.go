@@ -890,6 +890,7 @@ func (sc *Server) flush(hID fuse.HandleID) {
 			if glog.V(6) {
 				glog.Infof("stored chunk with sum: %x", sum)
 			}
+			b.Reset()
 			break
 		}
 	}
