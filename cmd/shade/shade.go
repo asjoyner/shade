@@ -90,8 +90,9 @@ func mountFuse(mountPoint string) (*fuse.Conn, error) {
 
 	options := []fuse.MountOption{
 		fuse.FSName("Shade"),
-		//fuse.Subtype(""),
-		//fuse.VolumeName(<iterate clients?>),
+		fuse.MaxReadahead(64 * 1024 * 1024), // in bytes
+		fuse.AsyncRead(),
+		fuse.WritebackCache(),
 	}
 
 	if *allowOther {
