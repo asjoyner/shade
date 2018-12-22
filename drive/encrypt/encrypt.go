@@ -169,7 +169,7 @@ func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
 	// TODO: consider making this more efficient by avoiding JSON and using a
 	// fixed-size prefix to store the encryptedKey, ala gcm.Seal and gcm.Open.
 	if err := json.Unmarshal(jm, eo); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal: %v (%s)", err, jm[0:8])
 	}
 	rng := rand.Reader
 
