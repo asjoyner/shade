@@ -5,16 +5,12 @@ package cache
 
 import (
 	"errors"
-	"flag"
 	"fmt"
-	"log"
+
+	"github.com/golang/glog"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
-)
-
-var (
-	cacheDebug = flag.Bool("cacheDebug", false, "Print cache debugging traces")
 )
 
 func init() {
@@ -40,14 +36,14 @@ func NewClient(c drive.Config) (drive.Client, error) {
 			return nil, fmt.Errorf("%s: %s", conf.Provider, err)
 		}
 		if child.GetConfig().Write {
-			d.log(fmt.Sprintf("child %s is writable.", conf.Provider))
+			glog.V(2).Infof("child %s is writable.", conf.Provider)
 			d.config.Write = true
 		} else {
-			d.log(fmt.Sprintf("child %s is NOT writable.", conf.Provider))
+			glog.V(2).Infof("child %s is NOT writable.", conf.Provider)
 		}
 		d.clients = append(d.clients, child)
 	}
-	d.log(fmt.Sprintf("my final status is: %v", d.config.Write))
+	glog.V(2).Infof("my final status is: %v", d.config.Write)
 	d.files = make(chan refreshReq, 100)
 	go func(d *Drive) {
 		for r := range d.files {
@@ -85,10 +81,12 @@ type Drive struct {
 func (s *Drive) ListFiles() ([][]byte, error) {
 	c := make(chan [][]byte, len(s.clients))
 	for _, client := range s.clients {
+		// TODO: spawn goroutines for this in advance, one per client?
+		// careful to keep it threadsafe
 		go func(client drive.Client) {
 			f, err := client.ListFiles()
 			if err != nil {
-				s.log(fmt.Sprintf("Error reading from %q: %s", client.GetConfig().Provider, err))
+				glog.Warningf("error reading from %q: %s", client.GetConfig().Provider, err)
 			}
 			c <- f
 		}(client)
@@ -108,7 +106,7 @@ func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
 	for _, client := range s.clients {
 		file, err := client.GetFile(sha256sum)
 		if err != nil {
-			s.log(fmt.Sprintf("File %x not found in %q: %s", sha256sum, client.GetConfig().Provider, err))
+			glog.V(2).Infof("File %x not found in %q: %s", sha256sum, client.GetConfig().Provider, err)
 			continue
 		}
 		s.files <- refreshReq{sha256sum: sha256sum, content: file, f: nil}
@@ -131,7 +129,7 @@ func (s *Drive) PutFile(sha256sum, f []byte) error {
 	for _, client := range s.clients {
 		go func(client drive.Client) {
 			if err := client.PutFile(sha256sum, f); err != nil {
-				s.log(fmt.Sprintf("%s.PutFile(%x) failed: %s", client.GetConfig().Provider, sha256sum, err))
+				glog.Warningf("%s.PutFile(%x) failed: %s", client.GetConfig().Provider, sha256sum, err)
 				done <- struct{}{}
 				return
 			}
@@ -160,7 +158,7 @@ func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 	for _, client := range s.clients {
 		chunk, err := client.GetChunk(sha256sum, f)
 		if err != nil {
-			s.log(fmt.Sprintf("Chunk %x not found in %q: %s", sha256sum, client.GetConfig().Provider, err))
+			glog.V(2).Infof("Chunk %x not found in %q: %s", sha256sum, client.GetConfig().Provider, err)
 			continue
 		}
 		s.chunks <- refreshReq{sha256sum: sha256sum, content: chunk, f: f}
@@ -182,7 +180,7 @@ func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, f *shade.File) error {
 	for _, client := range s.clients {
 		go func(client drive.Client) {
 			if err := client.PutChunk(sha256sum, chunk, f); err != nil {
-				s.log(fmt.Sprintf("%s.PutChunk(%x) failed: %s", client.GetConfig().Provider, sha256sum, err))
+				glog.Warningf("%s.PutChunk(%x) failed: %s", client.GetConfig().Provider, sha256sum, err)
 				done <- struct{}{}
 				return
 			}
@@ -228,18 +226,6 @@ func (s *Drive) Persistent() bool {
 		}
 	}
 	return false
-}
-
-// Debug enables debug statements to STDERR for non-critical failures to read or
-// write from clients.
-func (s *Drive) Debug() {
-	flag.Set("cacheDebug", "true")
-}
-
-func (s *Drive) log(output string) {
-	if *cacheDebug {
-		log.Printf("drive.Cache: %s\n", output)
-	}
 }
 
 func (s *Drive) refreshWorker() {
