@@ -82,7 +82,10 @@ func findFiles(ctx context.Context, service *gdrive.Service, found chan *gdrive.
 		// q = fmt.Sprintf("%s and not properties has { key='zb' }", q)
 	}
 	glog.V(2).Infof("files.list query: %s", q)
-	err := service.Files.List().IncludeTeamDriveItems(true).SupportsTeamDrives(true).Context(ctx).Q(q).Fields("files(id, name, properties), nextPageToken").Pages(ctx, p.handlePage)
+	req := service.Files.List().IncludeTeamDriveItems(true).SupportsTeamDrives(true)
+	req = req.Context(ctx).Q(q).Fields("files(id, name, properties), nextPageToken")
+	req = req.Corpora("user,allTeamDrives").PageSize(1000)
+	err := req.Pages(ctx, p.handlePage)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "couldn't retrieve file list: %s\n", err)
 		os.Exit(3)
