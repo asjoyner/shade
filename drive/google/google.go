@@ -28,10 +28,10 @@ package google
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"expvar"
 	"fmt"
 	"io/ioutil"
-	"sync"
 	"time"
 
 	"github.com/golang/glog"
@@ -52,6 +52,7 @@ var (
 	putChunkReq           = expvar.NewInt("googlePutChunkReq")
 	getChunkSuccess       = expvar.NewInt("googleGetChunkSuccess")
 	getChunkDupeError     = expvar.NewInt("googleGetDupeError")
+	getChunkMissing       = expvar.NewInt("googleGetMissing")
 	getChunkMetadataError = expvar.NewInt("googleGetChunkMetadataError")
 	getChunkDownloadError = expvar.NewInt("googleGetChunkDownloadError")
 )
@@ -67,20 +68,13 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve Google Drive Client: %v", err)
 	}
-	return &Drive{
-		service: service,
-		config:  c,
-		files:   make(map[string]string),
-	}, nil
+	return &Drive{service: service, config: c}, nil
 }
 
 // Drive represents access to the Google Drive storage system.
 type Drive struct {
 	service *gdrive.Service
 	config  drive.Config
-
-	mu    sync.RWMutex // protects following members
-	files map[string]string
 }
 
 // ListFiles retrieves all of the File objects known to the client, and returns
@@ -89,31 +83,27 @@ type Drive struct {
 func (s *Drive) ListFiles() ([][]byte, error) {
 	listFileReq.Add(1)
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
+	resp := make([][]byte, 0)
 	// this query is a Google Drive API query string which will return all
 	// shade metadata files, optionally restricted to a FileParentID
 	q := "appProperties has { key='shadeType' and value='file' }"
 	if s.config.FileParentID != "" {
 		q = fmt.Sprintf("%s and '%s' in parents", q, s.config.FileParentID)
 	}
-	r, err := s.service.Files.List().IncludeTeamDriveItems(true).SupportsTeamDrives(true).Context(ctx).Q(q).Fields("files(id, name)").Do()
+	req := s.service.Files.List()
+	req = req.Context(ctx).Q(q).Fields("files(id, name)")
+	req = req.IncludeTeamDriveItems(true).SupportsTeamDrives(true)
+	req = req.Corpora("user,allTeamDrives")
+	r, err := req.Do()
 	if err != nil {
 		glog.Errorf("List(): %v", err)
 		return nil, fmt.Errorf("couldn't retrieve files: %v", err)
 	}
-	s.mu.Lock()
 	for _, f := range r.Files {
 		// If decoding the name fails, skip the file.
 		if b, err := hex.DecodeString(f.Name); err == nil {
-			s.files[string(b)] = f.Id
+			resp = append(resp, b)
 		}
-	}
-	s.mu.Unlock()
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	resp := make([][]byte, 0, len(s.files))
-	for sha256sum := range s.files {
-		resp = append(resp, []byte(sha256sum))
 	}
 	return resp, nil
 }
@@ -131,6 +121,7 @@ func (s *Drive) PutFile(sha256sum, content []byte) error {
 	f := &gdrive.File{
 		Name:          hex.EncodeToString(sha256sum),
 		AppProperties: map[string]string{"shadeType": "file"},
+		Properties:    map[string]string{"zb": hex.EncodeToString(content[0:1])},
 	}
 	if s.config.FileParentID != "" {
 		f.Parents = []string{s.config.FileParentID}
@@ -156,61 +147,88 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 func (s *Drive) retrieve(sha256sum []byte) ([]byte, error) {
 	glog.V(3).Infof("Fetching %x", sha256sum)
 	start := time.Now()
-	s.mu.RLock()
-	fileID, ok := s.files[string(sha256sum)]
-	s.mu.RUnlock()
-
 	filename := hex.EncodeToString(sha256sum)
-	if !ok {
-		ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
-		q := fmt.Sprintf("name = '%s'", filename)
-		if s.config.FileParentID != "" {
-			q = fmt.Sprintf("%s and ('%s' in parents OR '%s' in parents)", q, s.config.FileParentID, s.config.ChunkParentID)
-		}
-		r, err := s.service.Files.List().SupportsTeamDrives(true).IncludeTeamDriveItems(true).Context(ctx).Q(q).Fields("files(id, name)").Do()
-		if err != nil {
-			getChunkMetadataError.Add(1)
-			glog.Warningf("couldn't get metadata for chunk %v: %v", filename, err)
-			return nil, fmt.Errorf("couldn't get metadata for chunk %v: %v", filename, err)
-		}
-		if len(r.Files) != 1 {
-			getChunkDupeError.Add(1)
-			glog.Warningf("got non-unique chunk result for chunk %v: %#v", filename, r.Files)
-			return nil, fmt.Errorf("got non-unique chunk result for chunk %v: %#v", filename, r.Files)
-		}
-		fileID = r.Files[0].Id
+
+	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
+	q := fmt.Sprintf("name = '%s'", filename)
+	if s.config.FileParentID != "" {
+		q = fmt.Sprintf("%s and ('%s' in parents OR '%s' in parents)", q, s.config.FileParentID, s.config.ChunkParentID)
+	}
+	req := s.service.Files.List()
+	req = req.Context(ctx).Q(q).Fields("files(id, name, properties, size)")
+	req = req.SupportsTeamDrives(true).IncludeTeamDriveItems(true)
+	req = req.Corpora("user,allTeamDrives")
+	resp, err := req.Do()
+	if err != nil {
+		getChunkMetadataError.Add(1)
+		glog.Warningf("couldn't get metadata for chunk %v: %v", filename, err)
+		return nil, fmt.Errorf("couldn't get metadata for chunk %v: %v", filename, err)
+	}
+	if len(resp.Files) == 0 {
+		getChunkMissing.Add(1)
+		glog.Warningf("got request for missing chunk %v: %#v", filename, resp)
+		return nil, fmt.Errorf("got request for missing chunk %v", filename)
+	}
+	if len(resp.Files) > 1 {
+		getChunkDupeError.Add(1)
+		glog.Warningf("got non-unique chunk result for chunk %v: %#v", filename, resp.Files)
+		return nil, fmt.Errorf("got non-unique chunk result for chunk %v: %#v", filename, resp.Files)
+	}
+	file := resp.Files[0]
+
+	dlReq := s.service.Files.Get(file.Id).SupportsTeamDrives(true)
+
+	zb, err := getZerobyte(file)
+	if err != nil {
+		glog.Warningf("getZerobyte(%s): %s", file.Name, err)
+	} else {
+		dlReq.Header().Add("Range", fmt.Sprintf("bytes=1-%d", file.Size))
 	}
 
-	resp, err := s.service.Files.Get(fileID).SupportsTeamDrives(true).Download()
+	dlResp, err := dlReq.Download()
 	if err != nil {
 		getChunkDownloadError.Add(1)
 		glog.Warningf("couldn't download chunk %v: %v", filename, err)
 		return nil, fmt.Errorf("couldn't download chunk %v: %v", filename, err)
 	}
-	defer resp.Body.Close()
+	defer dlResp.Body.Close()
 
-	chunk, err := ioutil.ReadAll(resp.Body)
+	chunk, err := ioutil.ReadAll(dlResp.Body)
 	if err != nil {
 		glog.Warningf("couldn't read chunk %v: %v", filename, err)
 		return nil, fmt.Errorf("couldn't read chunk %v: %v", filename, err)
 	}
 	getChunkSuccess.Add(1)
 	glog.V(3).Infof("Fetched %x in %v", sha256sum, time.Since(start))
+	if zb != nil {
+		glog.V(5).Infof("Used the zbyte! (%q + %q size: %d of %d)", zb, chunk[0:7], len(chunk), file.Size)
+		chunk = append(zb, chunk...)
+	}
 	return chunk, nil
+}
+
+func getZerobyte(file *gdrive.File) ([]byte, error) {
+	if file.Properties == nil {
+		return nil, errors.New("no Properties, so no zerobyte")
+	}
+	zbhex, ok := file.Properties["zb"]
+	if !ok {
+		return nil, errors.New("properties have no zerobyte")
+	}
+	zb, err := hex.DecodeString(zbhex)
+	if err != nil {
+		return nil, errors.New("could not decode zbyte")
+	}
+	return zb, nil
 }
 
 // PutChunk writes a chunk and returns its SHA-256 sum
 func (s *Drive) PutChunk(sha256sum, content []byte, _ *shade.File) error {
 	putChunkReq.Add(1)
-	s.mu.RLock()
-	_, ok := s.files[string(sha256sum)]
-	s.mu.RUnlock()
-	if ok {
-		return nil // we know this chunk already exists
-	}
 	f := &gdrive.File{
 		Name:          hex.EncodeToString(sha256sum),
 		AppProperties: map[string]string{"shadeType": "chunk"},
+		Properties:    map[string]string{"zb": hex.EncodeToString(content[0:1])},
 	}
 	if s.config.ChunkParentID != "" {
 		f.Parents = []string{s.config.ChunkParentID}
