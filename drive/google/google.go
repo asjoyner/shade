@@ -62,7 +62,7 @@ func init() {
 
 // NewClient returns a new Drive client.
 func NewClient(c drive.Config) (drive.Client, error) {
-	client := getOAuthClient(c)
+	client := GetOAuthClient(c)
 	service, err := gdrive.New(client)
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve Google Drive Client: %v", err)

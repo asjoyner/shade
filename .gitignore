@@ -30,6 +30,7 @@ _testmain.go
 cmd/shade/shade
 cmd/shadeutil/shadeutil
 cmd/throw/throw
+drive/google/zerobyte/zerobyte
 
 # dynamic regression test data
 cmd/throw/testdata/got/

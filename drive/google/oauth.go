@@ -33,7 +33,7 @@ var (
 	tokenPath = filepath.Join(shade.ConfigDir(), "google.token")
 )
 
-func getOAuthClient(c drive.Config) *http.Client {
+func GetOAuthClient(c drive.Config) *http.Client {
 	conf := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
