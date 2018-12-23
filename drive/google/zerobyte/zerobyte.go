@@ -5,11 +5,13 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
+	"strings"
 	"sync"
 
 	gdrive "google.golang.org/api/drive/v3"
@@ -25,9 +27,11 @@ var (
 
 	// flags
 	configPath = flag.String("config", defaultConfig, "shade config file containing only one entry for google")
-	filename   = flag.String("filename", "", "update just this filename")
+	filename   = flag.String("filename", "*", "restrict to this filename")
 	numWorkers = flag.Int("numWorkers", 10, "The number of files to fix in parallel.")
+	mimeType   = flag.String("mimetype", "*", "restrict to this mimetype")
 	refresh    = flag.Bool("refresh", false, "check and (if necessary, correct) values of zb")
+	shadeType  = flag.Bool("shadeType", true, "work on files files which were created by shade?")
 )
 
 func main() {
@@ -55,7 +59,9 @@ func main() {
 	for w := 1; w <= *numWorkers; w++ {
 		go func() {
 			for f := range found {
-				fixZeroByte(ctx, service, f)
+				if err := fixZeroByte(ctx, service, f); err != nil {
+					glog.Info(err)
+				}
 			}
 			wg.Done()
 		}()
@@ -73,18 +79,21 @@ func findFiles(ctx context.Context, service *gdrive.Service, found chan *gdrive.
 	var numFiles int
 	p := pages{numFiles: numFiles, found: found}
 
-	q := "(appProperties has { key='shadeType' and value='file' } or appProperties has { key='shadeType' and value='chunk' })"
-	if *filename != "" {
-		q = fmt.Sprintf("%s and name='%s'", q, *filename)
+	q := fmt.Sprintf("name contains '%s' and mimeType contains '%s' and ", *filename, *mimeType)
+	if !*shadeType {
+		q += "not "
 	}
-	if !*refresh {
-		// it seems you cannot use a query like this one:
-		// q = fmt.Sprintf("%s and not properties has { key='zb' }", q)
-	}
+	q += "(appProperties has { key='shadeType' and value='file' } or appProperties has { key='shadeType' and value='chunk' })"
+	/*
+		// it's too bad you can not use a query like this one:
+		if !*refresh {
+			q = fmt.Sprintf("%s and not properties has { key='zb' }", q)
+		}
+	*/
 	glog.V(2).Infof("files.list query: %s", q)
 	req := service.Files.List().IncludeTeamDriveItems(true).SupportsTeamDrives(true)
-	req = req.Context(ctx).Q(q).Fields("files(id, name, properties), nextPageToken")
-	req = req.Corpora("user,allTeamDrives").PageSize(1000)
+	req = req.Context(ctx).Q(q).Fields("files(id, name, properties, mimeType), nextPageToken")
+	req = req.PageSize(1000) //.Corpora("user,allTeamDrives")
 	err := req.Pages(ctx, p.handlePage)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "couldn't retrieve file list: %s\n", err)
@@ -104,6 +113,9 @@ type pages struct {
 // the paginated responses from Google Drive.
 func (p *pages) handlePage(r *gdrive.FileList) error {
 	for _, f := range r.Files {
+		if f.MimeType == "application/vnd.google-apps.folder" {
+			continue
+		}
 		p.numFiles++
 		if f.Properties != nil {
 			if zb, ok := f.Properties["zb"]; ok {
@@ -126,14 +138,15 @@ func fixZeroByte(ctx context.Context, service *gdrive.Service, f *gdrive.File) e
 	req.Header().Add("Range", "bytes=0-0")
 	resp, err := req.Download()
 	if err != nil {
-		os.Exit(2)
-		return fmt.Errorf("couldn't download file %s (%s): %s", f.Name, f.Id, err)
+		if strings.Contains(err.Error(), "downloadQuotaExceeded") {
+			err = errors.New("quota")
+		}
+		return fmt.Errorf("couldn't download zerobyte of %s (%s): %s", f.Name, f.Id, err)
 	}
 	defer resp.Body.Close()
 
 	halfMagic, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		os.Exit(3)
 		return fmt.Errorf("couldn't read file %s (%s): %v", f.Name, f.Id, err)
 	}
 	glog.V(4).Infof("The first byte is: %x\n", halfMagic)
