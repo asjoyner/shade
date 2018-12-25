@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"runtime"
 	"sync"
 	"time"
 
@@ -19,12 +20,15 @@ import (
 	"github.com/golang/glog"
 	"github.com/jpillora/backoff"
 
+	"runtime/pprof"
+
 	_ "github.com/asjoyner/shade/drive/amazon"
 	_ "github.com/asjoyner/shade/drive/cache"
 	_ "github.com/asjoyner/shade/drive/encrypt"
 	_ "github.com/asjoyner/shade/drive/google"
 	_ "github.com/asjoyner/shade/drive/local"
 	_ "github.com/asjoyner/shade/drive/memory"
+	_ "github.com/asjoyner/shade/drive/win"
 )
 
 var (
@@ -106,6 +110,8 @@ func main() {
 		os.Exit(3)
 	}
 
+	maxChunks := 300
+	var rt runtime.MemStats
 	for {
 		// Initialize chunk, to ensure each chunk uses a unique nonce
 		chunk := shade.NewChunk()
@@ -114,19 +120,21 @@ func main() {
 		chunkbytes := make([]byte, manifest.Chunksize)
 
 		// Read a chunk
-		len, err := fh.Read(chunkbytes)
+		numBytes, err := fh.Read(chunkbytes)
 		if err == io.EOF {
 			break
 		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", err)
 			os.Exit(3)
+		} else if len(manifest.Chunks) >= maxChunks {
+			break
 		}
-		manifest.Filesize += int64(len)
+		manifest.Filesize += int64(numBytes)
 
 		// truncate the chunkbytes array on the last read
-		if len < manifest.Chunksize {
-			chunkbytes = chunkbytes[:len]
-			manifest.LastChunksize = len
+		if numBytes < manifest.Chunksize {
+			chunkbytes = chunkbytes[:numBytes]
+			manifest.LastChunksize = numBytes
 		}
 
 		a := sha256.Sum256(chunkbytes)
@@ -135,6 +143,10 @@ func main() {
 		manifest.Chunks = append(manifest.Chunks, chunk)
 
 		// upload the chunk
+		if (len(manifest.Chunks) % 10) == 0 {
+			runtime.ReadMemStats(&rt)
+			fmt.Println(rt.Alloc)
+		}
 		uploadRequests <- chunkToGo{chunk, chunkbytes, manifest}
 	}
 	close(uploadRequests)
@@ -145,6 +157,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "could not marshal file manifest: %s\n", err)
 		os.Exit(1)
 	}
+	f, err := os.Create("/tmp/throw.mprof")
+	if err != nil {
+		log.Fatal(err)
+	}
+	pprof.WriteHeapProfile(f)
+	f.Close()
 	// upload the manifest
 	a := sha256.Sum256(jm)
 	if err := client.PutFile(a[:], jm); err != nil {

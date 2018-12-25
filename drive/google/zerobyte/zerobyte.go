@@ -104,8 +104,9 @@ func findFiles(ctx context.Context, service *gdrive.Service, found chan *gdrive.
 
 // pages holds the state about pages as they are processed
 type pages struct {
-	numFiles int
-	found    chan *gdrive.File
+	numFiles     int
+	skippedFiles int
+	found        chan *gdrive.File
 }
 
 // handlePage processes each page of files returned by the files.list query.
@@ -121,6 +122,7 @@ func (p *pages) handlePage(r *gdrive.FileList) error {
 			if zb, ok := f.Properties["zb"]; ok {
 				if !*refresh {
 					glog.V(2).Infof("Skipping file %s (%s) with zb: %s", f.Name, f.Id, zb)
+					p.skippedFiles++
 					continue
 				}
 			}
@@ -128,7 +130,7 @@ func (p *pages) handlePage(r *gdrive.FileList) error {
 		glog.V(3).Infof("requesting processing of file: %s (%s)", f.Name, f.Id)
 		p.found <- f
 	}
-	glog.Infof("Processed %d files.", p.numFiles)
+	glog.Infof("Processed %d files (%d completed).", p.numFiles, p.skippedFiles)
 	return nil
 }
 
