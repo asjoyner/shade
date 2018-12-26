@@ -127,7 +127,7 @@ func main() {
 		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", err)
 			os.Exit(3)
-		} else if len(manifest.Chunks) >= maxChunks {
+		} else if len(manifest.Chunks) >= *maxChunks {
 			glog.Info("Reached the maximum number of chunks in a single file.")
 			break
 		}
