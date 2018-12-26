@@ -37,6 +37,7 @@ import (
 	"github.com/golang/glog"
 
 	gdrive "google.golang.org/api/drive/v3"
+	"google.golang.org/api/googleapi"
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
@@ -127,9 +128,16 @@ func (s *Drive) PutFile(sha256sum, content []byte) error {
 		f.Parents = []string{s.config.FileParentID}
 	}
 
+	// Avoid the Google Drive API dividing the upload into smaller chunks, and
+	// having to detect the content type.
+	opts := []googleapi.MediaOption{
+		googleapi.ChunkSize(len(content)),
+		googleapi.ContentType("application/javascript"),
+	}
+
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
 	br := bytes.NewReader(content)
-	if _, err := s.service.Files.Create(f).SupportsTeamDrives(true).Context(ctx).Media(br).Do(); err != nil {
+	if _, err := s.service.Files.Create(f).SupportsTeamDrives(true).Context(ctx).Media(br, opts...).Do(); err != nil {
 		glog.Warningf("couldn't create file: %v", err)
 		return fmt.Errorf("couldn't create file: %v", err)
 	}
@@ -223,20 +231,33 @@ func getZerobyte(file *gdrive.File) ([]byte, error) {
 }
 
 // PutChunk writes a chunk and returns its SHA-256 sum
-func (s *Drive) PutChunk(sha256sum, content []byte, _ *shade.File) error {
+func (s *Drive) PutChunk(sha256sum, content []byte, f *shade.File) error {
+	if f == nil {
+		return errors.New("google.PutChunk requires an associated File{} object")
+	}
 	putChunkReq.Add(1)
-	f := &gdrive.File{
+	df := &gdrive.File{
 		Name:          hex.EncodeToString(sha256sum),
 		AppProperties: map[string]string{"shadeType": "chunk"},
 		Properties:    map[string]string{"zb": hex.EncodeToString(content[0:1])},
 	}
 	if s.config.ChunkParentID != "" {
-		f.Parents = []string{s.config.ChunkParentID}
+		df.Parents = []string{s.config.ChunkParentID}
+	}
+
+	// Avoid the Google Drive API dividing the upload into smaller chunks.
+	opts := []googleapi.MediaOption{googleapi.ChunkSize(len(content))}
+	// If there is more than one chunk set the content-type explicitly for the
+	// upload.  Even if it is unencrypted and happens to look like a valid
+	// mime-type, it is not a complete file.  It would be preferrable
+	// for Google not try to display it to the user in the web UI.
+	if len(f.Chunks) > 1 {
+		opts = append(opts, googleapi.ContentType("application/octet-stream"))
 	}
 
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
 	br := bytes.NewReader(content)
-	if _, err := s.service.Files.Create(f).SupportsTeamDrives(true).Context(ctx).Media(br).Do(); err != nil {
+	if _, err := s.service.Files.Create(df).SupportsTeamDrives(true).Context(ctx).Media(br, opts...).Do(); err != nil {
 		glog.Warningf("couldn't create file: %v", err)
 		return fmt.Errorf("couldn't create file: %v", err)
 	}
