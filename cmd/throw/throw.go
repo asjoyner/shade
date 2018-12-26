@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"runtime"
+	"runtime/pprof"
 	"sync"
 	"time"
 
@@ -151,6 +152,15 @@ func main() {
 			if (len(manifest.Chunks) % 10) == 0 {
 				runtime.ReadMemStats(&rt)
 				glog.Infof("%d chunks: %0.2f MBytes Heap, %0.2f MBytes Sys\n", len(manifest.Chunks), float64(rt.Alloc)/1024/1024, float64(rt.Sys)/1024/1024)
+
+				if glog.V(9) {
+					f, err := os.Create("/tmp/throw.mprof")
+					if err != nil {
+						log.Fatal(err)
+					}
+					pprof.WriteHeapProfile(f)
+					f.Close()
+				}
 			}
 		}
 		// upload the chunk
