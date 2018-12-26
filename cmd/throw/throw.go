@@ -20,8 +20,6 @@ import (
 	"github.com/golang/glog"
 	"github.com/jpillora/backoff"
 
-	"runtime/pprof"
-
 	_ "github.com/asjoyner/shade/drive/amazon"
 	_ "github.com/asjoyner/shade/drive/cache"
 	_ "github.com/asjoyner/shade/drive/encrypt"
@@ -36,6 +34,10 @@ var (
 	configPath    = flag.String("config", defaultConfig, "shade config file")
 	numWorkers    = flag.Int("numUploaders", 20, "The number of goroutines to upload chunks in parallel.")
 	maxRetries    = flag.Int("maxRetries", 10, "The number of times to try to write a chunk to persistent storage.")
+	// maxChunks serves as a backstop against accidentaly uploading /dev/urandom
+	// ad infinitum, and can be set to a lower value to facilitate testing memory
+	// usage, etc.  You may find testdata/config.win.json helpful for this.
+	maxChunks = flag.Int("maxChunks", 1000000, "The maximum number of chunks to read for a given file.")
 )
 
 type chunkToGo struct {
@@ -110,7 +112,6 @@ func main() {
 		os.Exit(3)
 	}
 
-	maxChunks := 300
 	var rt runtime.MemStats
 	for {
 		// Initialize chunk, to ensure each chunk uses a unique nonce
@@ -127,6 +128,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%s\n", err)
 			os.Exit(3)
 		} else if len(manifest.Chunks) >= maxChunks {
+			glog.Info("Reached the maximum number of chunks in a single file.")
 			break
 		}
 		manifest.Filesize += int64(numBytes)
@@ -142,11 +144,13 @@ func main() {
 
 		manifest.Chunks = append(manifest.Chunks, chunk)
 
-		// upload the chunk
-		if (len(manifest.Chunks) % 10) == 0 {
-			runtime.ReadMemStats(&rt)
-			fmt.Println(rt.Alloc)
+		if glog.V(3) {
+			if (len(manifest.Chunks) % 10) == 0 {
+				runtime.ReadMemStats(&rt)
+				glog.Infof("%d chunks: %0.2f MBytes Heap, %0.2f MBytes Sys\n", len(manifest.Chunks), float64(rt.Alloc)/1024/1024, float64(rt.Sys)/1024/1024)
+			}
 		}
+		// upload the chunk
 		uploadRequests <- chunkToGo{chunk, chunkbytes, manifest}
 	}
 	close(uploadRequests)
@@ -157,12 +161,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "could not marshal file manifest: %s\n", err)
 		os.Exit(1)
 	}
-	f, err := os.Create("/tmp/throw.mprof")
-	if err != nil {
-		log.Fatal(err)
-	}
-	pprof.WriteHeapProfile(f)
-	f.Close()
 	// upload the manifest
 	a := sha256.Sum256(jm)
 	if err := client.PutFile(a[:], jm); err != nil {
@@ -172,6 +170,6 @@ func main() {
 
 	elapsed := time.Since(start)
 	size := manifest.Filesize / 1024 / 1024
-	MBps := size / elapsed.Nanoseconds() / 1000000
-	fmt.Printf("Uploaded %d MB in %s at %dMB/s.\n", size, elapsed, MBps)
+	MBps := float64(size) / float64(elapsed.Nanoseconds()) / 1000000
+	fmt.Printf("Uploaded %d MB in %s at %0.2f MB/s.\n", size, elapsed, MBps)
 }
