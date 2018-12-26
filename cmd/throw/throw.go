@@ -32,8 +32,11 @@ import (
 var (
 	defaultConfig = path.Join(shade.ConfigDir(), "config.json")
 	configPath    = flag.String("config", defaultConfig, "shade config file")
-	numWorkers    = flag.Int("numUploaders", 20, "The number of goroutines to upload chunks in parallel.")
-	maxRetries    = flag.Int("maxRetries", 10, "The number of times to try to write a chunk to persistent storage.")
+	// numUploaders has diminishing returns after about 3-4, and meaningfully
+	// increases memory usage.  Setting it too high will almost certainly cause
+	// OOMs when upload files of more than trivial size.
+	numUploaders = flag.Int("numUploaders", 3, "The number of goroutines to upload chunks in parallel.")
+	maxRetries   = flag.Int("maxRetries", 10, "The number of times to try to write a chunk to persistent storage.")
 	// maxChunks serves as a backstop against accidentaly uploading /dev/urandom
 	// ad infinitum, and can be set to a lower value to facilitate testing memory
 	// usage, etc.  You may find testdata/config.win.json helpful for this.
@@ -76,8 +79,8 @@ func main() {
 	// initialize the goroutines to upload chunks
 	uploadRequests := make(chan chunkToGo)
 	var workers sync.WaitGroup
-	workers.Add(*numWorkers)
-	for w := 1; w <= *numWorkers; w++ {
+	workers.Add(*numUploaders)
+	for w := 1; w <= *numUploaders; w++ {
 		go func(reqs chan chunkToGo) {
 			for r := range reqs {
 				numRetries := 0
