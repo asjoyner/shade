@@ -131,7 +131,7 @@ func (s *Drive) PutFile(sha256sum, content []byte) error {
 	// Avoid the Google Drive API dividing the upload into smaller chunks, and
 	// having to detect the content type.
 	opts := []googleapi.MediaOption{
-		googleapi.ChunkSize(len(content)),
+		googleapi.ChunkSize(0),
 		googleapi.ContentType("application/javascript"),
 	}
 
@@ -246,7 +246,7 @@ func (s *Drive) PutChunk(sha256sum, content []byte, f *shade.File) error {
 	}
 
 	// Avoid the Google Drive API dividing the upload into smaller chunks.
-	opts := []googleapi.MediaOption{googleapi.ChunkSize(len(content))}
+	opts := []googleapi.MediaOption{googleapi.ChunkSize(0)}
 	// If there is more than one chunk set the content-type explicitly for the
 	// upload.  Even if it is unencrypted and happens to look like a valid
 	// mime-type, it is not a complete file.  It would be preferrable
