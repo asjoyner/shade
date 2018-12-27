@@ -183,6 +183,6 @@ func main() {
 
 	elapsed := time.Since(start)
 	size := manifest.Filesize / 1024 / 1024
-	MBps := float64(size) / float64(elapsed.Nanoseconds()) / 1000000
+	MBps := float64(size) / (float64(elapsed.Nanoseconds()) / 1000000)
 	fmt.Printf("Uploaded %d MB in %s at %0.2f MB/s.\n", size, elapsed, MBps)
 }
