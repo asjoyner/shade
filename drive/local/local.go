@@ -19,6 +19,7 @@ import (
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
+	"github.com/golang/glog"
 	"github.com/google/btree"
 )
 
@@ -168,6 +169,7 @@ func (s *Drive) PutFile(sha256sum, data []byte) error {
 	if fi, err := os.Stat(filename); err == nil {
 		now := time.Now()
 		if err := os.Chtimes(filename, now, now); err != nil {
+			glog.Warningf("updating file mtime: %s", err)
 			return fmt.Errorf("could not update mtime: %s", err)
 		}
 		s.files.Delete(Chunk{sum: sha256sum, mtime: fi.ModTime().Unix()})
@@ -177,6 +179,7 @@ func (s *Drive) PutFile(sha256sum, data []byte) error {
 
 	if s.config.MaxFiles > 0 {
 		if err := s.cleanup(true, 1); err != nil {
+			glog.Warningf("file cleanup(): %s", err)
 			return err
 		}
 	}
@@ -186,11 +189,13 @@ func (s *Drive) PutFile(sha256sum, data []byte) error {
 		return nil
 	}
 	if err := ioutil.WriteFile(filename, data, 0400); err != nil {
+		glog.Warningf("writing file to cache: %s", err)
 		return err
 	}
 
 	fi, err := os.Stat(filename)
 	if err != nil {
+		glog.Warningf("post-write file stat: %s", err)
 		return fmt.Errorf("could not stat file after write: %s", err)
 	}
 	s.files.ReplaceOrInsert(Chunk{
@@ -226,6 +231,7 @@ func (s *Drive) PutChunk(sha256sum []byte, data []byte, f *shade.File) error {
 	if fi, err := os.Stat(filename); err == nil {
 		now := time.Now()
 		if err := os.Chtimes(filename, now, now); err != nil {
+			glog.Warningf("updating chunk mtime: %s", err)
 			return fmt.Errorf("could not update mtime: %s", err)
 		}
 		s.chunks.Delete(Chunk{sum: sha256sum, mtime: fi.ModTime().Unix()})
@@ -235,6 +241,7 @@ func (s *Drive) PutChunk(sha256sum []byte, data []byte, f *shade.File) error {
 
 	if s.config.MaxChunkBytes > 0 {
 		if err := s.cleanup(false, uint64(len(data))); err != nil {
+			glog.Warningf("chunk cleanup(): %s", err)
 			return err
 		}
 	}
@@ -244,11 +251,13 @@ func (s *Drive) PutChunk(sha256sum []byte, data []byte, f *shade.File) error {
 		return nil
 	}
 	if err := ioutil.WriteFile(filename, data, 0400); err != nil {
+		glog.Warningf("writing chunk: %s", err)
 		return err
 	}
 
 	fi, err := os.Stat(filename)
 	if err != nil {
+		glog.Warningf("stating chunk after write: %s", err)
 		return fmt.Errorf("could not stat file after write: %s", err)
 	}
 	s.chunks.ReplaceOrInsert(Chunk{
