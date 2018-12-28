@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -518,6 +519,7 @@ func TestApplyWrite(t *testing.T) {
 			},
 			chunks: ts.before,
 			dirty:  make(map[int64][]byte),
+			queue:  make(map[string]*sync.WaitGroup),
 		}
 		if h.cache, err = lru.New(int(2)); err != nil {
 			t.Fatalf("initializing chunk lru: %s", err)

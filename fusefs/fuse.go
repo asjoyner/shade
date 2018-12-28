@@ -16,6 +16,7 @@ package fusefs
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -69,7 +70,7 @@ type Server struct {
 	uid     uint32 // uid of the user who mounted the FS
 	gid     uint32 // gid of the user who mounted the FS
 	conn    *fuse.Conn
-	handles []handle              // index is the handleid, inode=0 if free
+	handles []*handle             // index is the handleid, inode=0 if free
 	hm      sync.Mutex            // protects access to handles
 	writers map[int]io.PipeWriter // index matches fh
 }
@@ -104,6 +105,42 @@ type handle struct {
 	chunks map[int64]shade.Chunk
 	dirty  map[int64][]byte
 	cache  *lru.Cache
+	// queue tracks outstanding requests to fill cache
+	queue map[string]*sync.WaitGroup
+	// ql controls access to queue
+	ql sync.Mutex
+}
+
+// getChunk returns a shasum, using and updating the cache of chunks associated
+// with the open handle.  It also takes care to de-duplicate concurrent reads.
+func (h *handle) getChunk(client drive.Client, sha256sum []byte) ([]byte, error) {
+	if cb, ok := h.cache.Get(string(sha256sum)); ok {
+		return cb.([]byte), nil
+	}
+	h.ql.Lock()
+	wg, ok := h.queue[string(sha256sum)]
+	if ok {
+		h.ql.Unlock()
+		wg.Wait()
+		cb, ok := h.cache.Get(string(sha256sum))
+		if !ok {
+			return nil, errors.New("concurrent chunk request failed")
+		}
+		return cb.([]byte), nil
+	}
+	var nwg sync.WaitGroup
+	nwg.Add(1) // initialized as nil above if !ok
+	h.queue[string(sha256sum)] = &nwg
+	h.ql.Unlock()
+	glog.V(4).Infof("Fetching reference copy of: %x", sha256sum)
+	cb, err := client.GetChunk(sha256sum, h.file)
+	if err != nil {
+		glog.Warningf("client.GetChunk() err: %s", err)
+		return nil, err
+	}
+	h.cache.Add(string(sha256sum), cb)
+	nwg.Done()
+	return cb, nil
 }
 
 // return the current bytes of a chunk
@@ -116,17 +153,9 @@ func (h *handle) chunkBytesForWrite(chunkNum int64, client drive.Client) ([]byte
 	if !ok { // no chunk data at this offset (yet)
 		return make([]byte, 0), nil
 	}
-	var origChunk []byte
-	var err error
-	if cbi, ok := h.cache.Get(string(cleanChunk.Sha256)); ok {
-		origChunk = cbi.([]byte)
-	} else {
-		glog.V(4).Infof("Fetching clean chunk to be modified: %x", cleanChunk.Sha256)
-		origChunk, err = client.GetChunk(cleanChunk.Sha256, h.file)
-		if err != nil {
-			return nil, err
-		}
-		h.cache.Add(string(cleanChunk.Sha256), origChunk)
+	origChunk, err := h.getChunk(client, cleanChunk.Sha256)
+	if err != nil {
+		return nil, err
 	}
 	chunkCopy := make([]byte, len(origChunk))
 	copy(chunkCopy, origChunk)
@@ -439,19 +468,12 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 
 	var allTheBytes []byte
 	for _, cs := range chunkSums {
-		if cbi, ok := h.cache.Get(string(cs)); ok {
-			allTheBytes = append(allTheBytes, cbi.([]byte)...)
-			continue
-		}
-		glog.V(5).Infof("Fetching chunk for read into handle cache: %x", cs)
-		chunk, err := sc.client.GetChunk(cs, f)
+		cb, err := h.getChunk(sc.client, cs)
 		if err != nil {
-			glog.Warningf("GetChunk(%x): %v", cs, err)
 			req.RespondError(fuse.EIO)
 			return
 		}
-		h.cache.Add(string(cs), chunk)
-		allTheBytes = append(allTheBytes, chunk...)
+		allTheBytes = append(allTheBytes, cb...)
 	}
 
 	dsize := int64(len(allTheBytes))
@@ -497,11 +519,7 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 		}
 		cs := f.Chunks[prefetchChunk].Sha256
 		glog.V(4).Infof("Prefetching the next chunk: %x", cs)
-		cb, err := sc.client.GetChunk(cs, f)
-		if err != nil {
-			glog.Warningf("prefetch GetChunk(%x): %v", cs, err)
-		}
-		h.cache.Add(string(cs), cb)
+		h.getChunk(sc.client, cs)
 	}
 }
 
@@ -568,7 +586,12 @@ func (sc *Server) allocHandle(inode fuse.NodeID, f *shade.File) (uint64, error) 
 	var hID uint64
 	var found bool
 	var err error
-	h := handle{inode: inode, file: f, dirty: make(map[int64][]byte)}
+	h := &handle{
+		inode: inode,
+		file:  f,
+		dirty: make(map[int64][]byte),
+		queue: make(map[string]*sync.WaitGroup),
+	}
 	if h.cache, err = lru.New(int(chunksPerHandle)); err != nil {
 		return 0, fmt.Errorf("initializing chunk lru: %s", err)
 	}
@@ -590,11 +613,11 @@ func (sc *Server) allocHandle(inode fuse.NodeID, f *shade.File) (uint64, error) 
 }
 
 // Lookup a handleID by its NodeID
-func (sc *Server) handleByID(id fuse.HandleID) (handle, error) {
+func (sc *Server) handleByID(id fuse.HandleID) (*handle, error) {
 	sc.hm.Lock()
 	defer sc.hm.Unlock()
 	if int(id) >= len(sc.handles) {
-		return handle{}, fmt.Errorf("handle %v has not been allocated", id)
+		return nil, fmt.Errorf("handle %v has not been allocated", id)
 	}
 	return sc.handles[id], nil
 }
