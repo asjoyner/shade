@@ -43,7 +43,7 @@ func NewClient(c drive.Config) (drive.Client, error) {
 		}
 		d.clients = append(d.clients, child)
 	}
-	glog.V(2).Infof("my final status is: %v", d.config.Write)
+	glog.V(2).Infof("my final write status is: %v", d.config.Write)
 	d.files = make(chan refreshReq, 100)
 	go func(d *Drive) {
 		for r := range d.files {
