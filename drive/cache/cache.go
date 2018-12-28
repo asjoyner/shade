@@ -228,15 +228,6 @@ func (s *Drive) Persistent() bool {
 	return false
 }
 
-func (s *Drive) refreshWorker() {
-	select {
-	case r := <-s.files:
-		s.refreshFile(r.sha256sum, r.content)
-	case r := <-s.chunks:
-		s.refreshChunk(r.sha256sum, r.content, r.f)
-	}
-}
-
 // refreshFile calls PutFile on each client which is Local()
 // This populates eg. memory and disk clients with files that are
 // fetched from remote clients.  Errors are logged, but not returned.
