@@ -40,6 +40,11 @@ func (s *Drive) PutFile(sha256sum, f []byte) error {
 	return nil
 }
 
+// ReleaseFile returns success, every time.
+func (s *Drive) ReleaseFile(sha256sum []byte) error {
+	return nil
+}
+
 // GetChunk returns no data, no error, every time.
 func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 	return nil, nil
@@ -47,6 +52,11 @@ func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 
 // PutChunk returns success, every time.
 func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, f *shade.File) error {
+	return nil
+}
+
+// ReleaseChunk returns success, every time.
+func (s *Drive) ReleaseChunk(sha256sum []byte) error {
 	return nil
 }
 
@@ -60,3 +70,27 @@ func (s *Drive) Local() bool { return s.config.OAuth.ClientID == "" }
 
 // Persistent returns whether the storage is persistent across task restarts.
 func (s *Drive) Persistent() bool { return s.config.OAuth.ClientID != "" }
+
+// NewChunkLister returns an iterator which returns no chunks, no errors.
+func (s *Drive) NewChunkLister() drive.ChunkLister {
+	return &ChunkLister{}
+}
+
+// ChunkLister allows iterating the complete lack of chunks.
+type ChunkLister struct {
+}
+
+// Next always returns false, because there are no chunks.
+func (c *ChunkLister) Next() bool {
+	return false
+}
+
+// Sha256 returns nil.  It should never be called, because there are no chunks.
+func (c *ChunkLister) Sha256() []byte {
+	return nil
+}
+
+// Err returns precisely no errors.
+func (c *ChunkLister) Err() error {
+	return nil
+}

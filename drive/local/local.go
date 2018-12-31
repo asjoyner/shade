@@ -206,6 +206,25 @@ func (s *Drive) PutFile(sha256sum, data []byte) error {
 	return nil
 }
 
+// ReleaseFile deletes a file with a given SHA-256 sum
+func (s *Drive) ReleaseFile(sha256sum []byte) error {
+	s.Lock()
+	defer s.Unlock()
+
+	filename := path.Join(s.config.FileParentID, hex.EncodeToString(sha256sum))
+
+	fi, err := os.Stat(filename)
+	if err != nil {
+		return err
+	}
+	s.files.Delete(Chunk{sum: sha256sum, mtime: fi.ModTime().Unix()})
+	if err := os.Remove(filename); err != nil {
+		glog.Warningf("removed cache entry but not file: %s", err)
+		return err
+	}
+	return nil
+}
+
 // GetChunk retrieves a chunk with a given SHA-256 sum
 func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 	s.RLock()
@@ -270,6 +289,25 @@ func (s *Drive) PutChunk(sha256sum []byte, data []byte, f *shade.File) error {
 	return nil
 }
 
+// ReleaseChunk deletes a chunk with a given SHA-256 sum
+func (s *Drive) ReleaseChunk(sha256sum []byte) error {
+	s.Lock()
+	defer s.Unlock()
+
+	filename := path.Join(s.config.ChunkParentID, hex.EncodeToString(sha256sum))
+
+	fi, err := os.Stat(filename)
+	if err != nil {
+		return err
+	}
+	s.chunks.Delete(Chunk{sum: sha256sum, mtime: fi.ModTime().Unix()})
+	if err := os.Remove(filename); err != nil {
+		glog.Warningf("removed cache entry but not file: %s", err)
+		return err
+	}
+	return nil
+}
+
 // GetConfig returns the config used to initialize this client.
 func (s *Drive) GetConfig() drive.Config {
 	return s.config
@@ -280,6 +318,43 @@ func (s *Drive) Local() bool { return true }
 
 // Persistent returns whether the storage is persistent across task restarts.
 func (s *Drive) Persistent() bool { return true }
+
+// NewChunkLister returns an iterator which lists the chunks stored on disk.
+func (s *Drive) NewChunkLister() drive.ChunkLister {
+	var sums [][]byte
+	s.Lock()
+	defer s.Unlock()
+	s.chunks.Ascend(func(item btree.Item) bool {
+		sums = append(sums, item.(Chunk).sum)
+		return true
+	})
+	return &ChunkLister{sums: sums}
+}
+
+// ChunkLister allows iterating the chunks stored on disk.
+type ChunkLister struct {
+	sums [][]byte
+	ptr  int
+}
+
+// Next increments the pointer.
+func (c *ChunkLister) Next() bool {
+	c.ptr++
+	return c.ptr > len(c.sums)
+}
+
+// Sha256 returns the chunk pointed to by the pointer.
+func (c *ChunkLister) Sha256() []byte {
+	if c.ptr > len(c.sums) {
+		return nil
+	}
+	return c.sums[c.ptr-1]
+}
+
+// Err returns precisely no errors.
+func (c *ChunkLister) Err() error {
+	return nil
+}
 
 // cleanup iterates the provided BTree and removes the oldest entries from the
 // filesystem, in the provided directory, to bring the length below the

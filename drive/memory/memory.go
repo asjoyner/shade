@@ -80,7 +80,7 @@ func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
 		copy(retFile, fb)
 		return retFile, nil
 	}
-	return nil, errors.New("not in memory cache")
+	return nil, errors.New("not in memory client")
 }
 
 // PutFile writes the metadata describing a new file.
@@ -88,6 +88,12 @@ func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
 func (s *Drive) PutFile(sha256sum, f []byte) error {
 	s.files.Add(string(sha256sum), f)
 	memoryFiles.Set(int64(s.files.Len()))
+	return nil
+}
+
+// ReleaseFile removes a file from the memory client.
+func (s *Drive) ReleaseFile(sha256sum []byte) error {
+	s.files.Remove(string(sha256sum))
 	return nil
 }
 
@@ -100,7 +106,7 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 		copy(retChunk, cb)
 		return retChunk, nil
 	}
-	return nil, errors.New("chunk not in memory cache")
+	return nil, errors.New("chunk not in memory client")
 }
 
 // PutChunk writes a chunk and returns its SHA-256 sum
@@ -129,6 +135,12 @@ func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, _ *shade.File) error {
 	return nil
 }
 
+// ReleaseChunk removes a chunk from the memory client.
+func (s *Drive) ReleaseChunk(sha256sum []byte) error {
+	s.chunks.Remove(string(sha256sum))
+	return nil
+}
+
 func (s *Drive) decrement(key interface{}, value interface{}) {
 	//fmt.Printf("removing %x\n", key)
 	s.chunkBytes -= uint64(len(value.([]byte)))
@@ -145,6 +157,41 @@ func (s *Drive) Local() bool { return true }
 
 // Persistent returns whether the storage is persistent across task restarts.
 func (s *Drive) Persistent() bool { return false }
+
+// NewChunkLister allows listing all the chunks in memory.
+func (s *Drive) NewChunkLister() drive.ChunkLister {
+	keys := s.chunks.Keys()
+	sums := make([][]byte, 0, len(keys))
+	for _, k := range keys {
+		sums = append(sums, k.([]byte))
+	}
+	return &ChunkLister{sums: sums}
+}
+
+// ChunkLister allows iterating the chunks stored in memory.
+type ChunkLister struct {
+	sums [][]byte
+	ptr  int
+}
+
+// Next increments the pointer
+func (c *ChunkLister) Next() bool {
+	c.ptr++
+	return c.ptr > len(c.sums)
+}
+
+// Sha256 returns the chunk pointed to by the pointer.
+func (c *ChunkLister) Sha256() []byte {
+	if c.ptr > len(c.sums) {
+		return nil
+	}
+	return c.sums[c.ptr-1]
+}
+
+// Err returns precisely no errors.
+func (c *ChunkLister) Err() error {
+	return nil
+}
 
 // Equal compares one Drive instance to another.
 func (s *Drive) Equal(other *Drive) error {

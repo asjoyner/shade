@@ -189,6 +189,14 @@ func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
+// ReleaseFile calls ReleaseFile on the provided child client.
+//
+// Nb: This expects the same (raw) sha256sum returned by ListFiles.  The sums
+// that identify file objects are not encrypted.
+func (s *Drive) ReleaseFile(sha256sum []byte) error {
+	return s.client.ReleaseFile(sha256sum)
+}
+
 // PutChunk writes a chunk associated with a SHA-256 sum.  It uses the following process:
 //  - From the provided shade.File struct, retrieve:
 //    - the AES key of the File
@@ -242,6 +250,28 @@ func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 		return nil, fmt.Errorf("decrypting file %x: %s", sha256sum, err)
 	}
 	return chunkBytes, nil
+}
+
+// ReleaseChunk calls ReleaseChunk on the provided child client.
+//
+// Nb: This sha256sm is passed unmodified to the client, thus you should pass
+// the encrypted sha256sum as returned by the ChunkLister interface.  See
+// NewChunkLister for more detail.
+func (s *Drive) ReleaseChunk(sha256sum []byte) error {
+	return s.client.ReleaseChunk(sha256sum)
+}
+
+// NewChunkLister allows listing all the chunks in the encrypted client.
+//
+// Nb: The returned chunk *sums* are encrypted.  They cannot be decrypted
+// without the AesKey of the associated shade.File object.  The encrypted chunk
+// sums can still be useful, when combined with the shade/drive/encrypt
+// module's function to get the encrypted chunk sums of a given file.  This
+// allows you to determine if all of the chunks of a given file are durably
+// stored, combined with the list of all files to identify unreferenced chunks,
+// etc.
+func (s *Drive) NewChunkLister() drive.ChunkLister {
+	return s.client.NewChunkLister()
 }
 
 // GetEncryptedSum calculates the encrypted sha256sum that a chunk will be

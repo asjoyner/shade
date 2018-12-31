@@ -144,10 +144,40 @@ func (s *Drive) PutFile(sha256sum, content []byte) error {
 	return nil
 }
 
+// ReleaseFile removes a file from Google Drive.
+func (s *Drive) ReleaseFile(sha256sum []byte) error {
+	f, err := s.fileBySum(sha256sum)
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	if err := s.service.Files.Delete(f.Id).SupportsTeamDrives(true).Context(ctx).Do(); err != nil {
+		glog.Warningf("couldn't delete file: %v", err)
+		return fmt.Errorf("couldn't delete file: %v", err)
+	}
+	return nil
+}
+
 // GetChunk retrieves a chunk with a given SHA-256 sum.
 func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 	getChunkReq.Add(1)
 	return s.retrieve(sha256sum)
+}
+
+// ReleaseChunk removes a chunk file from Google Drive.
+func (s *Drive) ReleaseChunk(sha256sum []byte) error {
+	f, err := s.fileBySum(sha256sum)
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	if err := s.service.Files.Delete(f.Id).SupportsTeamDrives(true).Context(ctx).Do(); err != nil {
+		glog.Warningf("couldn't delete chunk: %v", err)
+		return fmt.Errorf("couldn't delete chunk: %v", err)
+	}
+	return nil
 }
 
 // retrieve is the internal implementation that fetches bytes by sha256sum.  It
@@ -155,34 +185,12 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 func (s *Drive) retrieve(sha256sum []byte) ([]byte, error) {
 	glog.V(3).Infof("Fetching %x", sha256sum)
 	start := time.Now()
-	filename := hex.EncodeToString(sha256sum)
 
-	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
-	q := fmt.Sprintf("name = '%s'", filename)
-	if s.config.FileParentID != "" {
-		q = fmt.Sprintf("%s and ('%s' in parents OR '%s' in parents)", q, s.config.FileParentID, s.config.ChunkParentID)
-	}
-	req := s.service.Files.List()
-	req = req.Context(ctx).Q(q).Fields("files(id, name, properties, size)")
-	req = req.SupportsTeamDrives(true).IncludeTeamDriveItems(true)
-	req = req.Corpora("user,allTeamDrives")
-	resp, err := req.Do()
+	file, err := s.fileBySum(sha256sum)
 	if err != nil {
-		getChunkMetadataError.Add(1)
-		glog.Warningf("couldn't get metadata for chunk %v: %v", filename, err)
-		return nil, fmt.Errorf("couldn't get metadata for chunk %v: %v", filename, err)
+		return nil, err
 	}
-	if len(resp.Files) == 0 {
-		getChunkMissing.Add(1)
-		glog.Warningf("got request for missing chunk %v: %#v", filename, resp)
-		return nil, fmt.Errorf("got request for missing chunk %v", filename)
-	}
-	if len(resp.Files) > 1 {
-		getChunkDupeError.Add(1)
-		glog.Warningf("got non-unique chunk result for chunk %v: %#v", filename, resp.Files)
-		return nil, fmt.Errorf("got non-unique chunk result for chunk %v: %#v", filename, resp.Files)
-	}
-	file := resp.Files[0]
+	glog.V(5).Infof("Fetched %x file ID in %v", sha256sum, time.Since(start))
 
 	dlReq := s.service.Files.Get(file.Id).SupportsTeamDrives(true)
 
@@ -196,15 +204,15 @@ func (s *Drive) retrieve(sha256sum []byte) ([]byte, error) {
 	dlResp, err := dlReq.Download()
 	if err != nil {
 		getChunkDownloadError.Add(1)
-		glog.Warningf("couldn't download chunk %v: %v", filename, err)
-		return nil, fmt.Errorf("couldn't download chunk %v: %v", filename, err)
+		glog.Warningf("couldn't download chunk %x: %v", sha256sum, err)
+		return nil, fmt.Errorf("couldn't download chunk %x: %v", sha256sum, err)
 	}
 	defer dlResp.Body.Close()
 
 	chunk, err := ioutil.ReadAll(dlResp.Body)
 	if err != nil {
-		glog.Warningf("couldn't read chunk %v: %v", filename, err)
-		return nil, fmt.Errorf("couldn't read chunk %v: %v", filename, err)
+		glog.Warningf("couldn't read chunk %x: %v", sha256sum, err)
+		return nil, fmt.Errorf("couldn't read chunk %x: %v", sha256sum, err)
 	}
 	getChunkSuccess.Add(1)
 	glog.V(3).Infof("Fetched %x in %v", sha256sum, time.Since(start))
@@ -213,6 +221,38 @@ func (s *Drive) retrieve(sha256sum []byte) ([]byte, error) {
 		chunk = append(zb, chunk...)
 	}
 	return chunk, nil
+}
+
+// fileBySum looks up the file object for a given file name (identified by its
+// sha256sum).  The file.Id is a necessary precondition for several API calls,
+// such as Get and Delete.
+func (s *Drive) fileBySum(sha256sum []byte) (*gdrive.File, error) {
+	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
+	q := fmt.Sprintf("name = '%x'", sha256sum)
+	if s.config.FileParentID != "" {
+		q = fmt.Sprintf("%s and ('%s' in parents OR '%s' in parents)", q, s.config.FileParentID, s.config.ChunkParentID)
+	}
+	req := s.service.Files.List()
+	req = req.Context(ctx).Q(q).Fields("files(id, name, properties, size)")
+	req = req.SupportsTeamDrives(true).IncludeTeamDriveItems(true)
+	req = req.Corpora("user,allTeamDrives")
+	resp, err := req.Do()
+	if err != nil {
+		getChunkMetadataError.Add(1)
+		glog.Warningf("couldn't get metadata for chunk %x: %v", sha256sum, err)
+		return nil, fmt.Errorf("couldn't get metadata for chunk %x: %v", sha256sum, err)
+	}
+	if len(resp.Files) == 0 {
+		getChunkMissing.Add(1)
+		glog.Warningf("got request for missing chunk %x: %#v", sha256sum, resp)
+		return nil, fmt.Errorf("got request for missing chunk %x", sha256sum)
+	}
+	if len(resp.Files) > 1 {
+		getChunkDupeError.Add(1)
+		glog.Warningf("got non-unique chunk result for chunk %x: %#v", sha256sum, resp.Files)
+		return nil, fmt.Errorf("got non-unique chunk result for chunk %x: %#v", sha256sum, resp.Files)
+	}
+	return resp.Files[0], nil
 }
 
 func getZerobyte(file *gdrive.File) ([]byte, error) {
@@ -274,3 +314,75 @@ func (s *Drive) Local() bool { return false }
 
 // Persistent returns whether the storage is persistent across task restarts.
 func (s *Drive) Persistent() bool { return true }
+
+// NewChunkLister returns an iterator which returns all chunks in Google Drive.
+func (s *Drive) NewChunkLister() drive.ChunkLister {
+	q := "appProperties has { key='shadeType' and value='chunk' }"
+	if s.config.ChunkParentID != "" {
+		q = fmt.Sprintf("%s and '%s' in parents", q, s.config.ChunkParentID)
+	}
+
+	ctx := context.Background()
+	req := s.service.Files.List()
+	req = req.Context(ctx).Q(q).Fields("files(id, name), nextPageToken")
+	req = req.IncludeTeamDriveItems(true).SupportsTeamDrives(true)
+	req = req.PageSize(1000).Corpora("user,allTeamDrives")
+
+	c := &ChunkLister{req: req, sums: make([][]byte, 0)}
+	c.err = c.fetchNextChunkSums()
+	return c
+}
+
+// ChunkLister allows iterating the chunks in Google Drive.
+type ChunkLister struct {
+	req           *gdrive.FilesListCall
+	sums          [][]byte
+	ptr           int
+	nextPageToken string
+	err           error
+}
+
+// Next increments the pointer
+func (c *ChunkLister) Next() bool {
+	if c.ptr == len(c.sums) {
+		if c.nextPageToken == "" {
+			return false // we have reached the end
+		}
+		if c.err = c.fetchNextChunkSums(); c.err != nil {
+			return false // there was an error along the way
+		}
+		c.ptr = 0 // time to iterate a new set!
+		return true
+	}
+	c.ptr++ // just one more step along the way
+	return true
+}
+
+// Sha256 returns the chunk pointed to by the pointer.
+func (c *ChunkLister) Sha256() []byte {
+	if c.ptr > len(c.sums) {
+		return nil
+	}
+	return c.sums[c.ptr-1]
+}
+
+// Err returns the error encountered, if any.
+func (c *ChunkLister) Err() error {
+	return c.err
+}
+
+func (c *ChunkLister) fetchNextChunkSums() error {
+	c.req = c.req.PageToken("c.nextPageToken")
+	r, err := c.req.Do()
+	if err != nil {
+		glog.Errorf("List(): %v", err)
+		return fmt.Errorf("couldn't retrieve files: %v", err)
+	}
+	for _, f := range r.Files {
+		// If decoding the name fails, skip the file.
+		if b, err := hex.DecodeString(f.Name); err == nil {
+			c.sums = append(c.sums, b)
+		}
+	}
+	return nil
+}

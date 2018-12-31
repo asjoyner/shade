@@ -30,6 +30,14 @@ type Client interface {
 	// PutChunk in that ListFiles() will return these chunks.
 	PutFile(sha256, chunk []byte) error
 
+	// ReleaseFile indicates this file is no longer required.
+	//
+	// The file is not required to be deleted by the client.
+	ReleaseFile(sha256 []byte) error
+
+	// ListChunks provides an iterator to return each chunk known to the client.
+	NewChunkLister() ChunkLister
+
 	// GetChunk retrieves a chunk with a given SHA-256 sum.  f is required for
 	// files to support encryption.  It is used to store the AES key the chunk
 	// and chunksum are encrypted with.
@@ -39,6 +47,11 @@ type Client interface {
 	// files to support encryption.  It is used to store the AES key the chunk
 	// and chunksum are encrypted with.
 	PutChunk(sha256, chunk []byte, f *shade.File) error
+
+	// ReleaseChunk indicates this chunk is no longer required.
+	//
+	// The chunk is not required to be deleted by the client.
+	ReleaseChunk(sha256 []byte) error
 
 	// GetConfig returns the drive.Config object used to initialize this client.
 	// This is mostly helpful for debugging, to identify which Provider it is.
@@ -56,6 +69,21 @@ type Client interface {
 	// persist after the death of the binary, but perhaps not the machine on
 	// which it is running
 	Persistent() bool
+}
+
+// ChunkLister provides a mechanism to iterate the Sha256 sums of all the
+// chunks in a Drive.  It uses a different pattern from ListFiles because
+// there may be a prohibitively large number of chunk sums to return all at
+// once.
+type ChunkLister interface {
+	// Next prepares the next chunk sum for reading with the Sha256 method. It
+	// returns true on success, or false if there are no more sums or an error
+	// happened. Err should be consulted to distinguish between the two cases.
+	Next() bool
+	// Sum returns the SHA256 sum of a chunk known to the client.
+	Sha256() []byte
+	// Err returns the error, if any, that was encountered during iteration.
+	Err() error
 }
 
 // Config contains the configuration for the cloud drive being accessed.

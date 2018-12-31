@@ -150,6 +150,15 @@ func (s *Drive) PutFile(sha256sum, f []byte) error {
 	return fmt.Errorf("persistent storage configured, but all writes failed: %x", sha256sum)
 }
 
+// ReleaseFile calls ReleaseFile on each of the provided clients in sequence.
+// No errors are returned from child clients.
+func (s *Drive) ReleaseFile(sha256sum []byte) error {
+	for _, client := range s.clients {
+		client.ReleaseFile(sha256sum)
+	}
+	return nil
+}
+
 // GetChunk retrieves a chunk with a given SHA-256 sum.  It will be returned
 // from the first client in the slice of structs that returns the chunk.
 func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
@@ -201,6 +210,15 @@ func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, f *shade.File) error {
 	return fmt.Errorf("persistent storage configured, but all writes failed: %x", sha256sum)
 }
 
+// ReleaseChunk calls ReleaseChunk on each of the provided clients in sequence.
+// No errors are returned from child clients.
+func (s *Drive) ReleaseChunk(sha256sum []byte) error {
+	for _, client := range s.clients {
+		client.ReleaseChunk(sha256sum)
+	}
+	return nil
+}
+
 // GetConfig returns the config used to initialize this client.
 func (s *Drive) GetConfig() drive.Config {
 	return s.config
@@ -226,6 +244,62 @@ func (s *Drive) Persistent() bool {
 		}
 	}
 	return false
+}
+
+// NewChunkLister returns an iterator which will return all of the chunks known
+// to all child clients.
+func (s *Drive) NewChunkLister() drive.ChunkLister {
+	c := &ChunkLister{listers: make([]drive.ChunkLister, 0, len(s.clients))}
+	for _, client := range s.clients {
+		c.listers = append(c.listers, client.NewChunkLister())
+	}
+	return c
+}
+
+// ChunkLister allows iterating the chunks in all child clients.
+type ChunkLister struct {
+	listers []drive.ChunkLister
+	sha256  []byte
+	err     error
+}
+
+// Next advances the iterator returned by Sha256.
+//
+// It attempts to see if the current client has another Sha256 to provide.
+// When a client is exhausted it advances to the next client.  If an Err is
+// encountered, iteration stops and Err() is propagated back to the caller.
+func (c *ChunkLister) Next() bool {
+	if len(c.listers) == 0 {
+		return false // we've iterated all the clients
+	}
+
+	// Process the first client in the list
+	if c.listers[0].Next() {
+		c.sha256 = c.listers[0].Sha256()
+		return true
+	}
+	c.err = c.listers[0].Err()
+	if c.err != nil {
+		return false
+	}
+
+	// client[0] has been exhausted without error, are there more?
+	if len(c.listers) > 1 {
+		c.listers = c.listers[1:]
+		return true
+	}
+	c.listers = nil
+	return false
+}
+
+// Sha256 returns the chunk pointed to by the pointer.
+func (c *ChunkLister) Sha256() []byte {
+	return c.sha256
+}
+
+// Err returns the error encountered, if any.
+func (c *ChunkLister) Err() error {
+	return c.err
 }
 
 // refreshFile calls PutFile on each client which is Local()

@@ -153,6 +153,12 @@ func (s *Drive) PutFile(sha256sum, contents []byte) error {
 	return nil
 }
 
+// ReleaseFile removes a file.
+func (s *Drive) ReleaseFile(sha256sum []byte) error {
+	// TODO: bother to implement this.
+	return nil
+}
+
 // GetChunk retrieves a chunk with a given SHA-256 sum.
 // It first gets the ID of the chunk with the named sha256sum, possibly from a
 // cache.  If then fetches the contents of the chunk from Drive.
@@ -216,6 +222,12 @@ func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, f *shade.File) error {
 	return nil
 }
 
+// ReleaseChunk removes a chunk file.
+func (s *Drive) ReleaseChunk(sha256sum []byte) error {
+	// TODO: bother to implement this.
+	return nil
+}
+
 // GetConfig returns the Drive's associated Config object.
 func (s *Drive) GetConfig() drive.Config {
 	return s.config
@@ -226,6 +238,80 @@ func (s *Drive) Local() bool { return false }
 
 // Persistent returns whether the storage is persistent across task restarts.
 func (s *Drive) Persistent() bool { return true }
+
+// NewChunkLister returns an iterator which returns all chunks in Drive.
+func (s *Drive) NewChunkLister() drive.ChunkLister {
+	filters := "kind:FILE AND labels:shadeChunk"
+	if s.config.FileParentID != "" {
+		filters += " AND parents:s.config.FileParentID"
+	}
+
+	v := url.Values{}
+	v.Set("filters", filters)
+
+	c := &ChunkLister{s: s, values: v, sums: make([][]byte, 0)}
+	c.err = c.fetchNextChunkSums()
+	return c
+}
+
+// ChunkLister allows iterating the chunks in the Drive.
+type ChunkLister struct {
+	s         *Drive
+	values    url.Values
+	sums      [][]byte
+	ptr       int
+	nextToken string
+	err       error
+}
+
+// Next increments the pointer
+func (c *ChunkLister) Next() bool {
+	if c.ptr == len(c.sums) {
+		if c.nextToken == "" {
+			return false // we have reached the end
+		}
+		if c.err = c.fetchNextChunkSums(); c.err != nil {
+			return false // there was an error along the way
+		}
+		c.ptr = 0 // time to iterate a new set!
+		return true
+	}
+	c.ptr++ // just one more step along the way
+	return true
+}
+
+// Sha256 returns the chunk pointed to by the pointer.
+func (c *ChunkLister) Sha256() []byte {
+	if c.ptr > len(c.sums) {
+		return nil
+	}
+	return c.sums[c.ptr-1]
+}
+
+// Err returns any error, if it is encountered.
+func (c *ChunkLister) Err() error {
+	return c.err
+}
+
+func (c *ChunkLister) fetchNextChunkSums() error {
+	if c.nextToken != "" {
+		c.values.Set("startToken", c.nextToken)
+	}
+	gfResp, err := c.s.getMetadata(c.values)
+	if err != nil {
+		return err
+	}
+
+	for _, f := range gfResp.Data {
+		b, err := hex.DecodeString(f.Name)
+		if err != nil {
+			log.Printf("Shade file %q with invalid hex in filename: %s\n", f.Name, err)
+		}
+		c.sums = append(c.sums, b)
+	}
+	c.nextToken = gfResp.NextToken
+	return nil
+}
 
 // uploadFile pushes the file with the associated metadata describing it
 func (s *Drive) uploadFile(filename string, chunk []byte, metadata interface{}) error {
