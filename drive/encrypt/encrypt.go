@@ -297,6 +297,24 @@ func GetEncryptedSum(sha256sum []byte, f *shade.File) (encryptedSum []byte, err 
 	return encryptUnsafe(sha256sum, f.AesKey, nonce)
 }
 
+// GetAllEncryptedSums returns the encrypted sums for each chunk in f.
+func GetAllEncryptedSums(f *shade.File) (encryptedSums [][]byte, err error) {
+	if f == nil {
+		return nil, errors.New("provide a file pointer to Get an encrypted chunk")
+	}
+	encryptedSums = make([][]byte, len(f.Chunks))
+	for i, chunk := range f.Chunks {
+		if chunk.Nonce == nil {
+			return nil, fmt.Errorf("no Nonce in Chunk %d: %x", i, chunk.Sha256)
+		}
+		encryptedSums[i], err = encryptUnsafe(chunk.Sha256, f.AesKey, chunk.Nonce)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return encryptedSums, nil
+}
+
 // Encrypt encrypts data using 256-bit AES-GCM.  This both hides the content of
 // the data and provides a check that it hasn't been altered. Output takes the
 // form nonce|ciphertext|tag where '|' indicates concatenation.
