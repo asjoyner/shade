@@ -220,7 +220,7 @@ func (s *Drive) retrieve(sha256sum []byte) ([]byte, error) {
 	getChunkSuccess.Add(1)
 	glog.V(3).Infof("Fetched %x in %v", sha256sum, time.Since(start))
 	if zb != nil {
-		glog.V(5).Infof("Used the zbyte! (%q + %q size: %d of %d)", zb, chunk[0:7], len(chunk), file.Size)
+		glog.V(5).Infof("Used the zbyte! (%x + %x size: %d of %d)", zb, chunk[0:7], len(chunk), file.Size)
 		chunk = append(zb, chunk...)
 	}
 	return chunk, nil
