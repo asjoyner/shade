@@ -375,7 +375,7 @@ func (c *ChunkLister) Err() error {
 }
 
 func (c *ChunkLister) fetchNextChunkSums() error {
-	c.req = c.req.PageToken("c.nextPageToken")
+	c.req = c.req.PageToken(c.nextPageToken)
 	r, err := c.req.Do()
 	if err != nil {
 		glog.Errorf("List(): %v", err)
