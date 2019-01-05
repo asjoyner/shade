@@ -239,7 +239,7 @@ func TestChunkLister(t *testing.T, c Client, numChunks uint64) {
 	}
 
 	if len(found) != len(testChunks) {
-		t.Errorf("ListFiles returned the wrong number of files:")
+		t.Errorf("ChunkLister returned the wrong number of chunks:")
 		t.Errorf("want: %d, got: %d:", len(testChunks), len(found))
 	}
 	for sum := range found {
@@ -250,6 +250,12 @@ func TestChunkLister(t *testing.T, c Client, numChunks uint64) {
 	for sum := range testChunks {
 		if _, ok := found[sum]; !ok {
 			t.Errorf("Missing chunk sum: %x", sum)
+		}
+	}
+
+	for stringSum := range testChunks {
+		if err := c.ReleaseChunk([]byte(stringSum)); err != nil {
+			t.Logf("Test chunk could not be released: %s", err)
 		}
 	}
 }
