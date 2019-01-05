@@ -92,8 +92,10 @@ func TestFileRoundTrip(t *testing.T, c Client, numFiles uint64) {
 		}
 	}
 
-	for _, stringSum := range testFiles {
-		c.ReleaseFile([]byte(stringSum))
+	for stringSum := range testFiles {
+		if err := c.ReleaseFile([]byte(stringSum)); err != nil {
+			t.Logf("Test file could not be released: %s", err)
+		}
 	}
 }
 
@@ -178,7 +180,9 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 	}
 
 	for stringSum := range testChunks {
-		c.ReleaseChunk([]byte(stringSum))
+		if err := c.ReleaseChunk([]byte(stringSum)); err != nil {
+			t.Logf("Test chunk could not be released: %s", err)
+		}
 	}
 }
 
