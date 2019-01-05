@@ -188,6 +188,60 @@ func TestParallelRoundTrip(t *testing.T, c Client, n uint64) {
 	return
 }
 
+// TestChunkLister allocates 100 random []byte, stores them in the client as
+// chunks, gets a ChunkLister, then iterates the chunks to ensure they are all
+// returned.
+func TestChunkLister(t *testing.T, c Client, numChunks uint64) {
+	testChunks := randChunk(uint64(numChunks))
+
+	// Make a file out of the chunks
+	file := shade.NewFile("testfile")
+	i := 0
+	for sum := range testChunks {
+		chunk := shade.NewChunk()
+		chunk.Index = i
+		chunk.Sha256 = []byte(sum)
+		file.Chunks = append(file.Chunks, chunk)
+		i++
+	}
+	file.LastChunksize = int(chunkSize)
+
+	// Populate test chunks into the client
+	for stringSum, chunk := range testChunks {
+		err := c.PutChunk([]byte(stringSum), chunk, file)
+		if err != nil {
+			t.Fatalf("Failed to put chunk %x: %s", stringSum, err)
+		} else {
+			//t.Logf("Put chunk %x", stringSum)
+		}
+	}
+
+	// List the Chunk sums
+	cl := c.NewChunkLister()
+	found := make(map[string]struct{}, numChunks)
+	for cl.Next() {
+		found[string(cl.Sha256())] = struct{}{}
+	}
+	if cl.Err() != nil {
+		t.Fatalf("Failed to list chunk sums: %s", cl.Err())
+	}
+
+	if len(found) != len(testChunks) {
+		t.Errorf("ListFiles returned the wrong number of files:")
+		t.Errorf("want: %d, got: %d:", len(testChunks), len(found))
+	}
+	for sum := range found {
+		if _, ok := testChunks[sum]; !ok {
+			t.Errorf("Found extraneous chunk sum: %x", sum)
+		}
+	}
+	for sum := range testChunks {
+		if _, ok := found[sum]; !ok {
+			t.Errorf("Missing chunk sum: %x", sum)
+		}
+	}
+}
+
 func runAndDone(f func(*testing.T, Client, uint64), t *testing.T, c Client, n uint64, wg *sync.WaitGroup) {
 	defer wg.Done()
 	f(t, c, n)

@@ -44,6 +44,18 @@ func TestParallelRoundTrip(t *testing.T) {
 	drive.TestParallelRoundTrip(t, mc, 100)
 }
 
+func TestChunkLister(t *testing.T) {
+	mc, err := NewClient(drive.Config{
+		Provider:      "memory",
+		MaxFiles:      10000,
+		MaxChunkBytes: 10000 * 256 * 50,
+	})
+	if err != nil {
+		t.Fatalf("NewClient() for test config failed: %s", err)
+	}
+	drive.TestChunkLister(t, mc, 100)
+}
+
 func TestComparingEqualLRUs(t *testing.T) {
 	a, err := NewClient(drive.Config{Provider: "memory"})
 	if err != nil {

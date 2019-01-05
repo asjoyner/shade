@@ -340,7 +340,7 @@ type ChunkLister struct {
 // Next increments the pointer.
 func (c *ChunkLister) Next() bool {
 	c.ptr++
-	return c.ptr > len(c.sums)
+	return c.ptr <= len(c.sums)
 }
 
 // Sha256 returns the chunk pointed to by the pointer.

@@ -163,7 +163,7 @@ func (s *Drive) NewChunkLister() drive.ChunkLister {
 	keys := s.chunks.Keys()
 	sums := make([][]byte, 0, len(keys))
 	for _, k := range keys {
-		sums = append(sums, k.([]byte))
+		sums = append(sums, []byte(k.(string)))
 	}
 	return &ChunkLister{sums: sums}
 }
@@ -177,7 +177,7 @@ type ChunkLister struct {
 // Next increments the pointer
 func (c *ChunkLister) Next() bool {
 	c.ptr++
-	return c.ptr > len(c.sums)
+	return c.ptr <= len(c.sums)
 }
 
 // Sha256 returns the chunk pointed to by the pointer.
