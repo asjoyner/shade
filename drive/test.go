@@ -91,6 +91,10 @@ func TestFileRoundTrip(t *testing.T, c Client, numFiles uint64) {
 			//t.Errorf("got %x, want: %x", returnedChunk, testFiles[stringSum])
 		}
 	}
+
+	for _, stringSum := range testFiles {
+		c.ReleaseFile([]byte(stringSum))
+	}
 }
 
 // TestChunkRoundTrip allocates numChunks random []byte, stores them in the
@@ -171,6 +175,10 @@ func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 				t.Errorf("Retrieved chunk %d of %d which should have been expired: %x", i, len(orderedChunks), stringSum)
 			}
 		}
+	}
+
+	for stringSum := range testChunks {
+		c.ReleaseChunk([]byte(stringSum))
 	}
 }
 

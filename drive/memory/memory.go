@@ -11,6 +11,7 @@ import (
 	"errors"
 	"expvar"
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/asjoyner/shade"
@@ -42,7 +43,11 @@ func NewClient(c drive.Config) (drive.Client, error) {
 	if client.files, err = lru.New(int(c.MaxFiles)); err != nil {
 		return nil, fmt.Errorf("initializing file lru: %s", err)
 	}
-	if client.chunks, err = lru.NewWithEvict(int(c.MaxFiles), client.decrement); err != nil {
+	// chunks are limited by size consumed, not number, so this the LRU uses a
+	// size of math.MaxInt to avoid LRU evicting entries based on count.  Its
+	// also required because decrement calls wg.Done(), which panics if the
+	// accounting code hasn't called Add(1) first.
+	if client.chunks, err = lru.NewWithEvict(math.MaxInt64, client.decrement); err != nil {
 		return nil, fmt.Errorf("initializing chunk lru: %s", err)
 	}
 	return client, nil
@@ -56,7 +61,8 @@ type Drive struct {
 	files      *lru.Cache
 	chunks     *lru.Cache
 	chunkBytes uint64
-	wg         sync.WaitGroup // synchronizes eviction of 'chunks'
+	wg         sync.WaitGroup // blocks on lru eviction of 'chunks' callback
+	wgl        sync.Mutex     // serializes usage of wg
 }
 
 // ListFiles retrieves all of the File objects known to the client.  The return
@@ -122,12 +128,14 @@ func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, _ *shade.File) error {
 	if !s.chunks.Contains(string(sha256sum)) {
 		s.chunkBytes += uint64(len(chunk))
 	}
+	s.wgl.Lock()
 	for s.chunkBytes > s.config.MaxChunkBytes {
 		//fmt.Printf("%d > %d\n", s.chunkBytes, s.config.MaxChunkBytes)
 		s.wg.Add(1)
 		s.chunks.RemoveOldest()
 		s.wg.Wait()
 	}
+	s.wgl.Unlock()
 	//fmt.Printf("adding %x to LRU...\n", sha256sum)
 	s.chunks.Add(string(sha256sum), chunk)
 	memoryChunks.Set(int64(s.chunks.Len()))
@@ -137,7 +145,16 @@ func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, _ *shade.File) error {
 
 // ReleaseChunk removes a chunk from the memory client.
 func (s *Drive) ReleaseChunk(sha256sum []byte) error {
+	if !s.chunks.Contains(string(sha256sum)) {
+		return nil
+	}
+	s.wgl.Lock()
+	s.wg.Add(1)
 	s.chunks.Remove(string(sha256sum))
+	s.wg.Wait()
+	s.wgl.Unlock()
+	memoryChunks.Set(int64(s.chunks.Len()))
+	memoryChunkBytes.Set(int64(s.chunkBytes))
 	return nil
 }
 
