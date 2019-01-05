@@ -119,6 +119,9 @@ func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
 // content should be marshalled JSON, and may be encrypted.
 func (s *Drive) PutFile(sha256sum, content []byte) error {
 	putFileReq.Add(1)
+	if _, err := s.fileBySum(sha256sum); err == nil {
+		return nil
+	}
 	f := &gdrive.File{
 		Name:          hex.EncodeToString(sha256sum),
 		AppProperties: map[string]string{"shadeType": "file"},
@@ -276,6 +279,9 @@ func (s *Drive) PutChunk(sha256sum, content []byte, f *shade.File) error {
 		return errors.New("google.PutChunk requires an associated File{} object")
 	}
 	putChunkReq.Add(1)
+	if _, err := s.fileBySum(sha256sum); err == nil {
+		return nil
+	}
 	df := &gdrive.File{
 		Name:          hex.EncodeToString(sha256sum),
 		AppProperties: map[string]string{"shadeType": "chunk"},
