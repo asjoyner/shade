@@ -2,7 +2,6 @@ package cache
 
 import (
 	"testing"
-	"time"
 
 	"github.com/asjoyner/shade/drive"
 
@@ -52,9 +51,6 @@ func TestTwoMemoryClients(t *testing.T) {
 	cacheClient := cc.(*Drive)
 	client0 := cacheClient.clients[0].(*memory.Drive)
 	client1 := cacheClient.clients[1].(*memory.Drive)
-
-	// Give the myriad goroutines a second to coalesce
-	time.Sleep(1 * time.Second)
 
 	if err := client0.Equal(client1); err != nil {
 		t.Fatal(err)

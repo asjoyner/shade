@@ -44,18 +44,6 @@ func NewClient(c drive.Config) (drive.Client, error) {
 		d.clients = append(d.clients, child)
 	}
 	glog.V(2).Infof("my final write status is: %v", d.config.Write)
-	d.files = make(chan refreshReq, 100)
-	go func(d *Drive) {
-		for r := range d.files {
-			d.refreshFile(r.sha256sum, r.content)
-		}
-	}(d)
-	d.chunks = make(chan refreshReq, 100)
-	go func(d *Drive) {
-		for r := range d.chunks {
-			d.refreshChunk(r.sha256sum, r.content, r.f)
-		}
-	}(d)
 	return d, nil
 }
 
@@ -70,8 +58,6 @@ func NewClient(c drive.Config) (drive.Client, error) {
 type Drive struct {
 	config  drive.Config
 	clients []drive.Client
-	chunks  chan refreshReq
-	files   chan refreshReq
 	debug   bool
 }
 
@@ -109,7 +95,11 @@ func (s *Drive) GetFile(sha256sum []byte) ([]byte, error) {
 			glog.V(2).Infof("File %x not found in %q: %s", sha256sum, client.GetConfig().Provider, err)
 			continue
 		}
-		s.files <- refreshReq{sha256sum: sha256sum, content: file, f: nil}
+		for _, c := range s.clients {
+			if c.Local() && c != client {
+				c.PutFile(sha256sum, file)
+			}
+		}
 		return file, nil
 	}
 	return nil, errors.New("file not found")
@@ -154,7 +144,9 @@ func (s *Drive) PutFile(sha256sum, f []byte) error {
 // No errors are returned from child clients.
 func (s *Drive) ReleaseFile(sha256sum []byte) error {
 	for _, client := range s.clients {
-		client.ReleaseFile(sha256sum)
+		if err := client.ReleaseFile(sha256sum); err != nil {
+			glog.Infof("could not ReleaseFile in %s: %s", client.GetConfig().Provider, err)
+		}
 	}
 	return nil
 }
@@ -170,7 +162,12 @@ func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 			glog.V(2).Infof("Chunk %x not found in %q: %s", sha256sum, client.GetConfig().Provider, err)
 			continue
 		}
-		s.chunks <- refreshReq{sha256sum: sha256sum, content: chunk, f: f}
+		for _, c := range s.clients {
+			if c.Local() && c != client {
+				glog.V(7).Infof("refreshing chunk %x", sha256sum)
+				client.PutChunk(sha256sum, chunk, f)
+			}
+		}
 		return chunk, nil
 	}
 	return nil, errors.New("chunk not found")
@@ -214,7 +211,9 @@ func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, f *shade.File) error {
 // No errors are returned from child clients.
 func (s *Drive) ReleaseChunk(sha256sum []byte) error {
 	for _, client := range s.clients {
-		client.ReleaseChunk(sha256sum)
+		if err := client.ReleaseChunk(sha256sum); err != nil {
+			glog.Infof("could not ReleaseChunk in %s: %s", client.GetConfig().Provider, err)
+		}
 	}
 	return nil
 }
@@ -306,20 +305,4 @@ func (c *ChunkLister) Err() error {
 // This populates eg. memory and disk clients with files that are
 // fetched from remote clients.  Errors are logged, but not returned.
 func (s *Drive) refreshFile(sha256sum, file []byte) {
-	for _, client := range s.clients {
-		if client.Local() {
-			client.PutFile(sha256sum, file)
-		}
-	}
-}
-
-// refreshChunk calls PutChunk on each client which is Local()
-// This populates eg. memory and disk clients with chunks that are
-// fetched from remote clients.  Errors are logged, but not returned.
-func (s *Drive) refreshChunk(sha256sum, chunk []byte, f *shade.File) {
-	for _, client := range s.clients {
-		if client.Local() {
-			client.PutChunk(sha256sum, chunk, f)
-		}
-	}
 }
