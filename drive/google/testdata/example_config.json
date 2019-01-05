@@ -1,0 +1,12 @@
+{
+  "Provider": "google",
+  "OAuth": {
+    "ClientID": "abc1234567890defghjiklmnopqrstuvwxyz.apps.googleusercontent.com",
+    "ClientSecret": "abc1234567890defghjiklmnopqrstuvwxyz",
+    "Scopes": ["https://www.googleapis.com/auth/drive.file"],
+    "TokenPath": "/home/username/.shade/google.token"
+  },
+  "Write": true,
+  "FileParentID": "1abcdef",
+  "ChunkParentID": "1abcdef"
+}

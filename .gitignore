@@ -36,3 +36,6 @@ drive/google/zerobyte/zerobyte
 cmd/throw/testdata/got/
 cmd/throw/testdata/testinput
 cmd/throw/testdata/testoutput
+
+# remote test configuration, see example_config.json
+drive/google/testdata/config.json
