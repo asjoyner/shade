@@ -13,6 +13,7 @@ import (
 	// Subcommand imports
 	"github.com/asjoyner/shade"
 	_ "github.com/asjoyner/shade/cmd/shadeutil/cat"
+	_ "github.com/asjoyner/shade/cmd/shadeutil/cleanup"
 	_ "github.com/asjoyner/shade/cmd/shadeutil/genkeys"
 	_ "github.com/asjoyner/shade/cmd/shadeutil/ls"
 
