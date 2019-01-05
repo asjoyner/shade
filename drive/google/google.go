@@ -52,9 +52,8 @@ var (
 	getChunkReq           = expvar.NewInt("googleGetChunkReq")
 	putChunkReq           = expvar.NewInt("googlePutChunkReq")
 	getChunkSuccess       = expvar.NewInt("googleGetChunkSuccess")
-	getChunkDupeError     = expvar.NewInt("googleGetDupeError")
-	getChunkMissing       = expvar.NewInt("googleGetMissing")
-	getChunkMetadataError = expvar.NewInt("googleGetChunkMetadataError")
+	duplicateFileError    = expvar.NewInt("googleDuplicateFileError")
+	listError             = expvar.NewInt("googleListError")
 	getChunkDownloadError = expvar.NewInt("googleGetChunkDownloadError")
 )
 
@@ -241,19 +240,17 @@ func (s *Drive) fileBySum(sha256sum []byte) (*gdrive.File, error) {
 	req = req.Corpora("user,allTeamDrives")
 	resp, err := req.Do()
 	if err != nil {
-		getChunkMetadataError.Add(1)
-		glog.Warningf("couldn't get metadata for chunk %x: %v", sha256sum, err)
-		return nil, fmt.Errorf("couldn't get metadata for chunk %x: %v", sha256sum, err)
+		listError.Add(1)
+		glog.Warningf("metadata request for file %x failed: %v", sha256sum, err)
+		return nil, fmt.Errorf("metadata request for file %x failed: %v", sha256sum, err)
 	}
 	if len(resp.Files) == 0 {
-		getChunkMissing.Add(1)
-		glog.Warningf("got request for missing chunk %x: %#v", sha256sum, resp)
-		return nil, fmt.Errorf("got request for missing chunk %x", sha256sum)
+		return nil, fmt.Errorf("no file found: %x", sha256sum)
 	}
 	if len(resp.Files) > 1 {
-		getChunkDupeError.Add(1)
-		glog.Warningf("got non-unique chunk result for chunk %x: %#v", sha256sum, resp.Files)
-		return nil, fmt.Errorf("got non-unique chunk result for chunk %x: %#v", sha256sum, resp.Files)
+		duplicateFileError.Add(1)
+		glog.Warningf("got non-unique chunk result for file %x: %#v", sha256sum, resp.Files)
+		return nil, fmt.Errorf("got non-unique chunk result for file %x: %#v", sha256sum, resp.Files)
 	}
 	return resp.Files[0], nil
 }
