@@ -17,7 +17,7 @@ import (
 
 const chunkSize uint64 = 100 * 256
 
-// TestFileRoundTrip is a helper function, it allocates 100 random []byte,
+// TestFileRoundTrip is a helper function, it allocates numFiles random []byte,
 // stores them in the provided client as files, retrieves them, and ensures all
 // of the files were returned.
 func TestFileRoundTrip(t *testing.T, c Client, numFiles uint64) {
@@ -93,9 +93,9 @@ func TestFileRoundTrip(t *testing.T, c Client, numFiles uint64) {
 	}
 }
 
-// TestChunkRoundTrip allocates 100 random []byte, stores them in the client as
-// chunks, then retrieves each one by its Sum and compares the bytes that are
-// returned.
+// TestChunkRoundTrip allocates numChunks random []byte, stores them in the
+// client as chunks, then retrieves each one by its Sum and compares the bytes
+// that are returned.
 func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 	maxBytes := c.GetConfig().MaxChunkBytes
 	testChunks := randChunk(uint64(numChunks))
@@ -188,9 +188,9 @@ func TestParallelRoundTrip(t *testing.T, c Client, n uint64) {
 	return
 }
 
-// TestChunkLister allocates 100 random []byte, stores them in the client as
-// chunks, gets a ChunkLister, then iterates the chunks to ensure they are all
-// returned.
+// TestChunkLister allocates numChunks random []byte, stores them in the client
+// as chunks, gets a ChunkLister, then iterates the chunks to ensure they are
+// all returned.
 func TestChunkLister(t *testing.T, c Client, numChunks uint64) {
 	testChunks := randChunk(uint64(numChunks))
 
