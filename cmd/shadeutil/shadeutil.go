@@ -17,6 +17,7 @@ import (
 	_ "github.com/asjoyner/shade/cmd/shadeutil/cleanup"
 	_ "github.com/asjoyner/shade/cmd/shadeutil/genkeys"
 	_ "github.com/asjoyner/shade/cmd/shadeutil/ls"
+	_ "github.com/asjoyner/shade/cmd/shadeutil/putfile"
 
 	// Drive client provider imports
 	_ "github.com/asjoyner/shade/drive/amazon"
