@@ -102,9 +102,14 @@ func Cleanup(client drive.Client) error {
 		}
 		esums, err := encrypt.GetAllEncryptedSums(ff.file)
 		if err != nil {
-			for _, s := range esums {
-				chunksInUse[string(s)] = struct{}{}
-			}
+			summary := fmt.Sprintf("could not get encrypted sums for %s: %d", ff.file.Filename, len(esums))
+			glog.Warningf("%s: %s", summary, err)
+			return fmt.Errorf("%s: %s", summary, err)
+		}
+		glog.V(3).Infof("encrypted sums for %s: %d", ff.file.Filename, len(esums))
+		for _, s := range esums {
+			glog.V(7).Infof("valid encrypted sum: %x", s)
+			chunksInUse[string(s)] = struct{}{}
 		}
 	}
 
