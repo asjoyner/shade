@@ -38,6 +38,7 @@ import (
 
 	"github.com/asjoyner/shade"
 	"github.com/asjoyner/shade/drive"
+	"github.com/golang/glog"
 )
 
 func init() {
@@ -135,6 +136,7 @@ func (s *Drive) PutFile(sha256sum, f []byte) error {
 	if s.config.Write == false {
 		return errors.New("no clients configured to write")
 	}
+	glog.V(3).Infof("Putting file %x", sha256sum)
 	key := shade.NewSymmetricKey()
 	rng := rand.Reader
 	encryptedKey, err := rsa.EncryptOAEP(sha256.New(), rng, s.pubkey, key[:], nil)
@@ -151,6 +153,7 @@ func (s *Drive) PutFile(sha256sum, f []byte) error {
 	if err != nil {
 		return fmt.Errorf("could not marshal json: %s", err)
 	}
+	glog.V(3).Infof("Putting file %x to child client", sha256sum)
 	if err := s.client.PutFile(sha256sum, jm); err != nil {
 		return fmt.Errorf("writing encrypted file: %x", sha256sum)
 	}

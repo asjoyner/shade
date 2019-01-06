@@ -118,6 +118,7 @@ func (s *Drive) PutFile(sha256sum, f []byte) error {
 	done := make(chan struct{}, len(s.clients))
 	for _, client := range s.clients {
 		go func(client drive.Client) {
+			glog.V(3).Infof("client %s putting file %x", client.GetConfig().Provider, sha256sum)
 			if err := client.PutFile(sha256sum, f); err != nil {
 				glog.Warningf("%s.PutFile(%x) failed: %s", client.GetConfig().Provider, sha256sum, err)
 				done <- struct{}{}
@@ -185,6 +186,7 @@ func (s *Drive) PutChunk(sha256sum []byte, chunk []byte, f *shade.File) error {
 	done := make(chan struct{}, len(s.clients))
 	for _, client := range s.clients {
 		go func(client drive.Client) {
+			glog.V(3).Infof("client %s putting chunk %x", client.GetConfig().Provider, sha256sum)
 			if err := client.PutChunk(sha256sum, chunk, f); err != nil {
 				glog.Warningf("%s.PutChunk(%x) failed: %s", client.GetConfig().Provider, sha256sum, err)
 				done <- struct{}{}
