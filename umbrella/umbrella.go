@@ -25,10 +25,10 @@ type FoundFile struct {
 }
 
 // FetchFiles uses the provided client to fetch all of the known files and
-// sorts them into those which are inUse and those which are Obsolete.
-func FetchFiles(client drive.Client) (inUseFiles, obsoleteFiles []FoundFile, err error) {
+// sorts them into those which are inUse and those which are obsolete.
+func FetchFiles(client drive.Client) (inUse, obsolete []FoundFile, err error) {
 	filesByPath := make(map[string]FoundFile)
-	obsoleteFiles = make([]FoundFile, 0)
+	obsolete = make([]FoundFile, 0)
 	// ListFiles to retrieve all file objects
 	files, err := client.ListFiles()
 	if err != nil {
@@ -49,20 +49,23 @@ func FetchFiles(client drive.Client) (inUseFiles, obsoleteFiles []FoundFile, err
 		}
 		existing, ok := filesByPath[file.Filename]
 		if !ok {
+			glog.V(2).Infof("found new file: %x", sha256sum)
 			filesByPath[file.Filename] = FoundFile{file, sha256sum}
 			continue
 		}
 
 		if existing.file.ModifiedTime.After(file.ModifiedTime) {
-			obsoleteFiles = append(obsoleteFiles, FoundFile{file, sha256sum})
+			glog.V(2).Infof("obsolete file: %x (%d < %d)", sha256sum, file.ModifiedTime.Unix(), existing.file.ModifiedTime.Unix())
+			obsolete = append(obsolete, FoundFile{file, sha256sum})
 			continue
 		}
 		filesByPath[file.Filename] = FoundFile{file, sha256sum}
-		obsoleteFiles = append(obsoleteFiles, FoundFile{file, sha256sum})
+		glog.V(2).Infof("obsolete file: %x (%d < %d)", existing.sum, file.ModifiedTime.Unix(), existing.file.ModifiedTime.Unix())
+		obsolete = append(obsolete, FoundFile{existing.file, existing.sum})
 	}
-	inUseFiles = make([]FoundFile, 0, len(filesByPath))
+	inUse = make([]FoundFile, 0, len(filesByPath))
 	for _, ff := range filesByPath {
-		inUseFiles = append(inUseFiles, ff)
+		inUse = append(inUse, ff)
 	}
 	return
 }
@@ -70,12 +73,12 @@ func FetchFiles(client drive.Client) (inUseFiles, obsoleteFiles []FoundFile, err
 // Cleanup attempts to remove obsolete files and unused chunks from persistent
 // storage clients.
 func Cleanup(client drive.Client) error {
-	inUseFiles, obsoleteFiles, err := FetchFiles(client)
+	inUse, obsolete, err := FetchFiles(client)
 	if err != nil {
 		return err
 	}
-	niu := len(inUseFiles)
-	no := len(obsoleteFiles)
+	niu := len(inUse)
+	no := len(obsolete)
 	if niu < no {
 		err := fmt.Errorf("more files are obsolete (%d) than remain (%d); aborting", no, niu)
 		glog.Warning(err.Error())
@@ -86,14 +89,14 @@ func Cleanup(client drive.Client) error {
 		glog.Warning(err.Error())
 		return err
 	}
-	for _, ff := range obsoleteFiles {
+	for _, ff := range obsolete {
 		glog.Infof("Releasing obsolete file: %x", ff.sum)
 		client.ReleaseFile(ff.sum)
 	}
 
 	// Build the map of all the chunksInUse
 	chunksInUse := make(map[string]struct{})
-	for _, ff := range inUseFiles {
+	for _, ff := range inUse {
 		for _, chunk := range ff.file.Chunks {
 			chunksInUse[string(chunk.Sha256)] = struct{}{}
 		}
@@ -118,7 +121,9 @@ func cleanupUnusedFiles(client drive.Client, chunksInUse map[string]struct{}) er
 		csum := lister.Sha256()
 		if _, ok := chunksInUse[string(csum)]; !ok {
 			unusedChunks = append(unusedChunks, csum)
+			continue
 		}
+		glog.V(2).Infof("chunk is in use: %x", csum)
 	}
 	if err := lister.Err(); err != nil {
 		return err
@@ -130,6 +135,7 @@ func cleanupUnusedFiles(client drive.Client, chunksInUse map[string]struct{}) er
 		return err
 	}
 	for _, csum := range unusedChunks {
+		glog.V(2).Infof("removing unreferenced chunk: %x", csum)
 		client.ReleaseChunk(csum)
 	}
 	return nil
