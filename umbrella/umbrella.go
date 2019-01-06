@@ -17,6 +17,7 @@ var (
 	maxFilesDelete  = flag.Int("maxFilesDelete", 100, "A safety limit: the maxmium number of files to delete per run.")
 	maxChunksDelete = flag.Int("maxChunksDelete", 100, "A safety limit: the maxmium number of chunks to delete per run.")
 	deleteMostFiles = flag.Bool("deleteMostFiles", false, "A safety limit: more files must remain than are deleted.")
+	dryRun          = flag.Bool("dryrun", false, "Instead of deleting files, print what would have been deleted.")
 )
 
 // FoundFile groups files with their associated sums
@@ -91,8 +92,12 @@ func Cleanup(client drive.Client) error {
 		return err
 	}
 	for _, ff := range obsolete {
-		glog.Infof("Releasing obsolete file: %x", ff.sum)
-		client.ReleaseFile(ff.sum)
+		glog.Infof("Releasing obsolete file: %s (%s %x)", ff.file.Filename, ff.file.ModifiedTime, ff.sum)
+		if *dryRun {
+			fmt.Printf("Releasing obsolete file: %s (%s %x)\n", ff.file.Filename, ff.file.ModifiedTime, ff.sum)
+		} else {
+			client.ReleaseFile(ff.sum)
+		}
 	}
 
 	// Build the map of all the chunksInUse
@@ -142,7 +147,11 @@ func cleanupUnusedFiles(client drive.Client, chunksInUse map[string]struct{}) er
 	}
 	for _, csum := range unusedChunks {
 		glog.V(2).Infof("removing unreferenced chunk: %x", csum)
-		client.ReleaseChunk(csum)
+		if *dryRun {
+			fmt.Printf("Releasing unreferenced chunk: %x\n", csum)
+		} else {
+			client.ReleaseChunk(csum)
+		}
 	}
 	return nil
 }
