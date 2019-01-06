@@ -129,7 +129,7 @@ func cleanupUnusedFiles(client drive.Client, chunksInUse map[string]struct{}) er
 		return err
 	}
 	uc := len(unusedChunks)
-	if uc <= *maxChunksDelete {
+	if uc >= *maxChunksDelete {
 		err := fmt.Errorf("num unused chunks (%d) over safety threshold (%d)", uc, maxFilesDelete)
 		glog.Warning(err.Error())
 		return err
