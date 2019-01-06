@@ -22,7 +22,7 @@ const chunkSize uint64 = 100 * 256
 // of the files were returned.
 func TestFileRoundTrip(t *testing.T, c Client, numFiles uint64) {
 	maxFiles := c.GetConfig().MaxFiles
-	testFiles := randChunk(numFiles)
+	testFiles := RandChunks(numFiles)
 
 	// Populate testFiles into the client
 	for stringSum, file := range testFiles {
@@ -104,7 +104,7 @@ func TestFileRoundTrip(t *testing.T, c Client, numFiles uint64) {
 // that are returned.
 func TestChunkRoundTrip(t *testing.T, c Client, numChunks uint64) {
 	maxBytes := c.GetConfig().MaxChunkBytes
-	testChunks := randChunk(uint64(numChunks))
+	testChunks := RandChunks(uint64(numChunks))
 
 	// Make a file out of the chunks
 	file := shade.NewFile("testfile")
@@ -204,7 +204,7 @@ func TestParallelRoundTrip(t *testing.T, c Client, n uint64) {
 // as chunks, gets a ChunkLister, then iterates the chunks to ensure they are
 // all returned.
 func TestChunkLister(t *testing.T, c Client, numChunks uint64) {
-	testChunks := randChunk(uint64(numChunks))
+	testChunks := RandChunks(uint64(numChunks))
 
 	// Make a file out of the chunks
 	file := shade.NewFile("testfile")
@@ -265,13 +265,20 @@ func runAndDone(f func(*testing.T, Client, uint64), t *testing.T, c Client, n ui
 	f(t, c, n)
 }
 
-// Generate some random test chunks
-func randChunk(n uint64) map[string][]byte {
+// RandChunks generate some random chunks for testing
+func RandChunks(n uint64) map[string][]byte {
 	testChunks := make(map[string][]byte, n)
 	for i := uint64(0); i < n; i++ {
-		c := make([]byte, chunkSize)
-		rand.Read(c)
-		testChunks[string(shade.Sum(c))] = c
+		sum, data := RandChunk()
+		testChunks[string(sum)] = data
 	}
 	return testChunks
+}
+
+// RandChunk generates a single random chunk of chunkSize, and returns the
+// shade.Sum and its chunk data.
+func RandChunk() ([]byte, []byte) {
+	c := make([]byte, chunkSize)
+	rand.Read(c)
+	return shade.Sum(c), c
 }
