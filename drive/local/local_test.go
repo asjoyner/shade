@@ -95,6 +95,24 @@ func TestDirRequired(t *testing.T) {
 	}
 }
 
+func TestRelease(t *testing.T) {
+	dir, err := ioutil.TempDir("", "localdiskTest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tearDown(dir)
+	ld, err := NewClient(drive.Config{
+		Provider:      "localdisk",
+		FileParentID:  path.Join(dir, "files"),
+		ChunkParentID: path.Join(dir, "chunks"),
+		MaxFiles:      100,
+	})
+	if err != nil {
+		t.Fatalf("initializing client: %s", err)
+	}
+	drive.TestRelease(t, ld, true)
+}
+
 func tearDown(dir string) {
 	if err := os.RemoveAll(dir); err != nil {
 		log.Printf("Could not clean up: %s", err)

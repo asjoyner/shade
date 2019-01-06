@@ -90,3 +90,13 @@ func TestEncryptDecrypt(t *testing.T) {
 		t.Fatalf("want: %q, got: %q", plaintext, response)
 	}
 }
+
+func TestFileRelease(t *testing.T) {
+	tc, err := testClient()
+	if err != nil {
+		t.Fatalf("TestClient() for test config failed: %s", err)
+	}
+	// validate is set to false, because drive/test.go can't easily determine
+	// encrypted chunk sums
+	drive.TestRelease(t, tc, false)
+}

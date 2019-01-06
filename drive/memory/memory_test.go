@@ -56,6 +56,16 @@ func TestChunkLister(t *testing.T) {
 	drive.TestChunkLister(t, mc, 100)
 }
 
+func TestRelease(t *testing.T) {
+	mc, err := NewClient(drive.Config{
+		Provider: "memory",
+	})
+	if err != nil {
+		t.Fatalf("NewClient() for test config failed: %s", err)
+	}
+	drive.TestRelease(t, mc, true)
+}
+
 func TestComparingEqualLRUs(t *testing.T) {
 	a, err := NewClient(drive.Config{Provider: "memory"})
 	if err != nil {

@@ -260,6 +260,75 @@ func TestChunkLister(t *testing.T, c Client, numChunks uint64) {
 	}
 }
 
+// TestRelease verifies the behavior of ReleaseFile and ReleaseChunk.  In
+// particular, that they should not error when asked to delete data they do not
+// have.  If a client implements Release correctly, set validate to test
+// that Release* actually do release the files.
+func TestRelease(t *testing.T, c Client, validate bool) {
+	numChunks := 4
+	testChunks := RandChunks(uint64(numChunks))
+	// Make a file out of the chunks, to satisfy the PutChunk API
+	file := shade.NewFile("testfile")
+	i := 0
+	for sum := range testChunks {
+		chunk := shade.NewChunk()
+		chunk.Index = i
+		chunk.Sha256 = []byte(sum)
+		file.Chunks = append(file.Chunks, chunk)
+		i++
+	}
+	file.LastChunksize = int(chunkSize)
+
+	var orderedSlice []string
+	for stringSum := range testChunks {
+		orderedSlice = append(orderedSlice, stringSum)
+	}
+
+	// Populate half of the test chunks into the client as both files and chunks
+	i = 0
+	for _, stringSum := range orderedSlice {
+		if i >= (numChunks / 2) {
+			break
+		}
+		if err := c.PutChunk([]byte(stringSum), testChunks[stringSum], file); err != nil {
+			t.Fatalf("Failed to put chunk %x: %s", stringSum, err)
+		}
+		if err := c.PutFile([]byte(stringSum), testChunks[stringSum]); err != nil {
+			t.Fatalf("Failed to put chunk %x: %s", stringSum, err)
+		}
+		i++
+	}
+
+	// Release all of the Files and Chunks.
+	i = 0
+	for _, stringSum := range orderedSlice {
+		err := c.ReleaseChunk([]byte(stringSum))
+		if err != nil {
+			t.Errorf("Error releasing chunk %d: %s", i, err)
+			if i >= (numChunks / 2) {
+				t.Errorf("(hint: chunk %d was never pushed to the client)", i)
+			}
+		}
+		if err := c.ReleaseFile([]byte(stringSum)); err != nil {
+			t.Errorf("Error releasing file %d: %s", i, err)
+			if i >= (numChunks / 2) {
+				t.Errorf("(hint: file %d was never pushed to the client)", i)
+			}
+		}
+		if validate && i < (numChunks/2) {
+			_, err := c.GetChunk([]byte(stringSum), file)
+			if err == nil {
+				t.Errorf("chunk %x existed after ReleaseChunk", stringSum)
+			}
+			if _, err := c.GetFile([]byte(stringSum)); err == nil {
+				t.Errorf("file %x existed after ReleaseFile", stringSum)
+			}
+		}
+		i++
+	}
+
+}
+
 func runAndDone(f func(*testing.T, Client, uint64), t *testing.T, c Client, n uint64, wg *sync.WaitGroup) {
 	defer wg.Done()
 	f(t, c, n)

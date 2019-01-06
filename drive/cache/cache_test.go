@@ -95,3 +95,17 @@ func TestOnlyPersistentSatisfies(t *testing.T) {
 		t.Fatal("failed write to only persistent drive did not fail PutChunk")
 	}
 }
+
+// Test a single pass through to the memory client.
+func TestRelease(t *testing.T) {
+	cc, err := NewClient(drive.Config{
+		Children: []drive.Config{
+			drive.Config{Provider: "memory", Write: true},
+		},
+	},
+	)
+	if err != nil {
+		t.Fatalf("NewClient() for test config failed: %s", err)
+	}
+	drive.TestRelease(t, cc, true)
+}

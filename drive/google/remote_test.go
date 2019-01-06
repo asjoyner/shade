@@ -45,3 +45,8 @@ func TestChunkLister(t *testing.T) {
 	client := newTestClient(t)
 	drive.TestChunkLister(t, client, 10)
 }
+
+func TestRelease(t *testing.T) {
+	client := newTestClient(t)
+	drive.TestRelease(t, client, true)
+}
