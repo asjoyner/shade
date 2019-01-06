@@ -20,6 +20,7 @@ import (
 	"github.com/asjoyner/shade/config"
 	"github.com/asjoyner/shade/drive"
 	"github.com/asjoyner/shade/fusefs"
+	"github.com/golang/glog"
 
 	_ "github.com/asjoyner/shade/drive/amazon"
 	_ "github.com/asjoyner/shade/drive/cache"
@@ -74,6 +75,7 @@ func main() {
 		log.Fatalf("failed to service mount: %s", err)
 	}
 
+	glog.Flush()
 	return
 }
 

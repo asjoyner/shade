@@ -59,6 +59,7 @@ func main() {
 	flag.Parse()
 	if flag.NArg() != 2 {
 		flag.Usage()
+		glog.Flush()
 		os.Exit(2)
 	}
 
@@ -66,6 +67,7 @@ func main() {
 	config, err := config.Read(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not initialize clients: %s\n", err)
+		glog.Flush()
 		os.Exit(1)
 	}
 
@@ -91,6 +93,7 @@ func main() {
 					if err := client.PutChunk(r.chunk.Sha256, r.chunkbytes, r.manifest); err != nil {
 						if numRetries >= *maxRetries {
 							fmt.Fprintf(os.Stderr, "chunk upload failed: %s\n", err)
+							glog.Flush()
 							os.Exit(1)
 						}
 						glog.Errorf("chunk write error, will retry: %s", err)
@@ -113,6 +116,7 @@ func main() {
 	fh, err := os.Open(filename)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
+		glog.Flush()
 		os.Exit(3)
 	}
 
@@ -130,6 +134,7 @@ func main() {
 			break
 		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", err)
+			glog.Flush()
 			os.Exit(3)
 		} else if len(manifest.Chunks) >= *maxChunks {
 			glog.Info("Reached the maximum number of chunks in a single file.")
@@ -172,12 +177,14 @@ func main() {
 	jm, err := json.Marshal(manifest)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not marshal file manifest: %s\n", err)
+		glog.Flush()
 		os.Exit(1)
 	}
 	// upload the manifest
 	a := sha256.Sum256(jm)
 	if err := client.PutFile(a[:], jm); err != nil {
 		fmt.Fprintf(os.Stderr, "manifest upload failed: %s\n", err)
+		glog.Flush()
 		os.Exit(1)
 	}
 
@@ -185,4 +192,5 @@ func main() {
 	size := manifest.Filesize / 1024 / 1024
 	MBps := float64(size) / (float64(elapsed.Nanoseconds()) / 1000000)
 	fmt.Printf("Uploaded %d MB in %s at %0.2f MB/s.\n", size, elapsed, MBps)
+	glog.Flush()
 }

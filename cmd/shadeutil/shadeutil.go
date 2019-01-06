@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/net/context"
 
+	"github.com/golang/glog"
 	"github.com/google/subcommands"
 
 	// Subcommand imports
@@ -39,5 +40,7 @@ func main() {
 	flag.Parse()
 
 	ctx := context.Background()
-	os.Exit(int(subcommands.Execute(ctx, configPath)))
+	exitValue := subcommands.Execute(ctx, configPath)
+	glog.Flush()
+	os.Exit(int(exitValue))
 }
