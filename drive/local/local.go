@@ -215,7 +215,7 @@ func (s *Drive) ReleaseFile(sha256sum []byte) error {
 
 	fi, err := os.Stat(filename)
 	if err != nil {
-		return err
+		return nil // no such file: our work here is done
 	}
 	s.files.Delete(Chunk{sum: sha256sum, mtime: fi.ModTime().Unix()})
 	if err := os.Remove(filename); err != nil {
@@ -298,13 +298,14 @@ func (s *Drive) ReleaseChunk(sha256sum []byte) error {
 
 	fi, err := os.Stat(filename)
 	if err != nil {
-		return err
+		return nil // no such file: our work here is done
 	}
 	s.chunks.Delete(Chunk{sum: sha256sum, mtime: fi.ModTime().Unix()})
 	if err := os.Remove(filename); err != nil {
 		glog.Warningf("removed cache entry but not file: %s", err)
 		return err
 	}
+	s.chunkBytes -= uint64(fi.Size())
 	return nil
 }
 
