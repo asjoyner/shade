@@ -15,7 +15,8 @@ import (
 
 var (
 	maxFilesDelete  = flag.Int("maxFilesDelete", 100, "A safety limit: the maxmium number of files to delete per run.")
-	maxChunksDelete = flag.Int("maxChunksDelete", 100, "A safety limit: the maxmium number of files to delete per run.")
+	maxChunksDelete = flag.Int("maxChunksDelete", 100, "A safety limit: the maxmium number of chunks to delete per run.")
+	deleteMostFiles = flag.Bool("deleteMostFiles", false, "A safety limit: more files must remain than are deleted.")
 )
 
 // FoundFile groups files with their associated sums
@@ -49,7 +50,7 @@ func FetchFiles(client drive.Client) (inUse, obsolete []FoundFile, err error) {
 		}
 		existing, ok := filesByPath[file.Filename]
 		if !ok {
-			glog.V(2).Infof("found new file: %x", sha256sum)
+			glog.V(4).Infof("found new file: %x", sha256sum)
 			filesByPath[file.Filename] = FoundFile{file, sha256sum}
 			continue
 		}
@@ -79,8 +80,8 @@ func Cleanup(client drive.Client) error {
 	}
 	niu := len(inUse)
 	no := len(obsolete)
-	if niu < no {
-		err := fmt.Errorf("more files are obsolete (%d) than remain (%d); aborting", no, niu)
+	if niu < no && !*deleteMostFiles {
+		err := fmt.Errorf("more files are obsolete (%d) than remain (%d); aborting (bypass with --deleteMostFiles)", no, niu)
 		glog.Warning(err.Error())
 		return err
 	}
@@ -106,7 +107,7 @@ func Cleanup(client drive.Client) error {
 			glog.Warningf("%s: %s", summary, err)
 			return fmt.Errorf("%s: %s", summary, err)
 		}
-		glog.V(3).Infof("encrypted sums for %s: %d", ff.file.Filename, len(esums))
+		glog.V(4).Infof("encrypted sums for %s: %d", ff.file.Filename, len(esums))
 		for _, s := range esums {
 			glog.V(7).Infof("valid encrypted sum: %x", s)
 			chunksInUse[string(s)] = struct{}{}
@@ -128,14 +129,14 @@ func cleanupUnusedFiles(client drive.Client, chunksInUse map[string]struct{}) er
 			unusedChunks = append(unusedChunks, csum)
 			continue
 		}
-		glog.V(2).Infof("chunk is in use: %x", csum)
+		glog.V(3).Infof("chunk is in use: %x", csum)
 	}
 	if err := lister.Err(); err != nil {
 		return err
 	}
 	uc := len(unusedChunks)
 	if uc >= *maxChunksDelete {
-		err := fmt.Errorf("num unused chunks (%d) over safety threshold (%d)", uc, maxFilesDelete)
+		err := fmt.Errorf("num unused chunks (%d) over safety threshold (%d)", uc, *maxChunksDelete)
 		glog.Warning(err.Error())
 		return err
 	}
