@@ -150,7 +150,7 @@ func (s *Drive) PutFile(sha256sum, content []byte) error {
 func (s *Drive) ReleaseFile(sha256sum []byte) error {
 	f, err := s.fileBySum(sha256sum)
 	if err != nil {
-		return err
+		return nil // file not found: our work here is done.
 	}
 
 	ctx := context.Background()
@@ -171,7 +171,7 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 func (s *Drive) ReleaseChunk(sha256sum []byte) error {
 	f, err := s.fileBySum(sha256sum)
 	if err != nil {
-		return err
+		return nil // file not found: our work here is done.
 	}
 
 	ctx := context.Background()
