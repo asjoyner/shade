@@ -31,10 +31,6 @@ func (*cleanupCmd) SetFlags(f *flag.FlagSet) { return }
 
 func (p *cleanupCmd) Execute(_ context.Context, f *flag.FlagSet, args ...interface{}) subcommands.ExitStatus {
 	configPath := args[0].(*string)
-	if f.NArg() != 1 {
-		fmt.Printf("unexpected number of arguments to cleanup; want: 1, got: %d\n", f.NArg())
-		return subcommands.ExitFailure
-	}
 
 	// read in the config
 	config, err := config.Read(*configPath)
@@ -51,6 +47,7 @@ func (p *cleanupCmd) Execute(_ context.Context, f *flag.FlagSet, args ...interfa
 	}
 
 	if err := umbrella.Cleanup(client); err != nil {
+		fmt.Println(err)
 		return subcommands.ExitFailure
 	}
 	return subcommands.ExitSuccess
