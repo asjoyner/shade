@@ -37,7 +37,14 @@ func FetchFiles(client drive.Client) (inUse, obsolete []FoundFile, err error) {
 		return nil, nil, fmt.Errorf("%q ListFiles(): %s", client.GetConfig().Provider, err)
 	}
 	glog.Infof("Found %d file(s) via %s", len(files), client.GetConfig().Provider)
+	uniqueFiles := make(map[string]struct{}, 0)
 	for _, sha256sum := range files {
+		uniqueFiles[string(sha256sum)] = struct{}{}
+	}
+	glog.Infof("Deduplicated %d file(s) to %s unique files", len(files), len(uniqueFiles))
+
+	for stringSum := range uniqueFiles {
+		sha256sum := []byte(stringSum)
 		// fetch the file
 		f, err := client.GetFile(sha256sum)
 		if err != nil {
@@ -130,6 +137,7 @@ func cleanupUnusedFiles(client drive.Client, chunksInUse map[string]struct{}) er
 	for lister.Next() {
 		csum := lister.Sha256()
 		if _, ok := chunksInUse[string(csum)]; !ok {
+			glog.V(3).Infof("chunk is obsolete: %x", csum)
 			unusedChunks = append(unusedChunks, csum)
 			continue
 		}
@@ -139,13 +147,14 @@ func cleanupUnusedFiles(client drive.Client, chunksInUse map[string]struct{}) er
 		return err
 	}
 	uc := len(unusedChunks)
+	glog.V(2).Infof("Identified %d unused chunks", uc)
 	if uc >= *maxChunksDelete {
 		err := fmt.Errorf("num unused chunks (%d) over safety threshold (%d)", uc, *maxChunksDelete)
 		glog.Warning(err.Error())
 		return err
 	}
 	for _, csum := range unusedChunks {
-		glog.V(2).Infof("removing unreferenced chunk: %x", csum)
+		glog.V(2).Infof("Releasing unreferenced chunk: %x", csum)
 		if *dryRun {
 			fmt.Printf("Releasing unreferenced chunk: %x\n", csum)
 		} else {
