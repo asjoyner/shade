@@ -41,17 +41,15 @@ func FetchFiles(client drive.Client) (inUse, obsolete []FoundFile, err error) {
 		// fetch the file
 		f, err := client.GetFile(sha256sum)
 		if err != nil {
-			glog.Warningf("Failed to fetch file %x: %s  (skipping)", sha256sum, err)
-			continue
+			return nil, nil, fmt.Errorf("failed to fetch file %x: %s", sha256sum, err)
 		}
 		file := &shade.File{}
 		if err := file.FromJSON(f); err != nil {
-			glog.Warningf("Could not unmarshal file %x: %v", sha256sum, err)
-			continue
+			return nil, nil, fmt.Errorf("Could not unmarshal file %x: %v", sha256sum, err)
 		}
 		existing, ok := filesByPath[file.Filename]
 		if !ok {
-			glog.V(4).Infof("found new file: %x", sha256sum)
+			glog.V(4).Infof("found new file for %s at %x", file.Filename, sha256sum)
 			filesByPath[file.Filename] = FoundFile{file, sha256sum}
 			continue
 		}
@@ -77,6 +75,7 @@ func FetchFiles(client drive.Client) (inUse, obsolete []FoundFile, err error) {
 func Cleanup(client drive.Client) error {
 	inUse, obsolete, err := FetchFiles(client)
 	if err != nil {
+		glog.Warning(err)
 		return err
 	}
 	niu := len(inUse)
