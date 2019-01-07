@@ -149,6 +149,10 @@ func (s *Drive) PutFile(sha256sum, content []byte) error {
 
 // ReleaseFile removes a file from Google Drive.
 func (s *Drive) ReleaseFile(sha256sum []byte) error {
+	if len(sha256sum) == 0 {
+		return nil
+	}
+	glog.V(3).Infof("releasing file %x", sha256sum)
 	f, err := s.fileBySum(sha256sum)
 	if err != nil {
 		return nil // file not found: our work here is done.
@@ -170,6 +174,10 @@ func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
 
 // ReleaseChunk removes a chunk file from Google Drive.
 func (s *Drive) ReleaseChunk(sha256sum []byte) error {
+	if len(sha256sum) == 0 {
+		return nil
+	}
+	glog.V(3).Infof("releasing chunk %x", sha256sum)
 	f, err := s.fileBySum(sha256sum)
 	if err != nil {
 		return nil // file not found: our work here is done.

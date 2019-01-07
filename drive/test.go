@@ -327,6 +327,40 @@ func TestRelease(t *testing.T, c Client, validate bool) {
 		i++
 	}
 
+	// Add back one chunk and file, release with no argument, validate behavior
+	if validate {
+		stringSum := orderedSlice[0]
+		if err := c.PutChunk([]byte(stringSum), testChunks[stringSum], file); err != nil {
+			t.Fatalf("Failed to put chunk %x: %s", stringSum, err)
+		}
+		if err := c.PutFile([]byte(stringSum), testChunks[stringSum]); err != nil {
+			t.Fatalf("Failed to put chunk %x: %s", stringSum, err)
+		}
+
+		// this should have no effect... right?
+		if err := c.ReleaseFile([]byte{}); err != nil {
+			t.Errorf("ReleaseFile() returns an error: %s", err)
+		}
+		if err := c.ReleaseChunk([]byte{}); err != nil {
+			t.Errorf("ReleaseChunk() returns an error: %s", err)
+		}
+
+		// the file and chunk should still be there... right?
+		if _, err := c.GetFile([]byte(stringSum)); err != nil {
+			t.Error("file erased by empty ReleaseFile!")
+		}
+		if _, err := c.GetChunk([]byte(stringSum), file); err != nil {
+			t.Error("chunk erased by empty ReleaseChunk!")
+		}
+
+		// clean up after the experiment
+		if err := c.ReleaseFile([]byte(stringSum)); err != nil {
+			t.Errorf("Failed to release file %x: %s", stringSum, err)
+		}
+		if err := c.ReleaseChunk([]byte(stringSum)); err != nil {
+			t.Errorf("Failed to release chunk %x: %s", stringSum, err)
+		}
+	}
 }
 
 func runAndDone(f func(*testing.T, Client, uint64), t *testing.T, c Client, n uint64, wg *sync.WaitGroup) {

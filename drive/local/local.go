@@ -208,6 +208,9 @@ func (s *Drive) PutFile(sha256sum, data []byte) error {
 
 // ReleaseFile deletes a file with a given SHA-256 sum
 func (s *Drive) ReleaseFile(sha256sum []byte) error {
+	if len(sha256sum) == 0 {
+		return nil
+	}
 	s.Lock()
 	defer s.Unlock()
 
@@ -291,6 +294,9 @@ func (s *Drive) PutChunk(sha256sum []byte, data []byte, f *shade.File) error {
 
 // ReleaseChunk deletes a chunk with a given SHA-256 sum
 func (s *Drive) ReleaseChunk(sha256sum []byte) error {
+	if len(sha256sum) == 0 {
+		return nil
+	}
 	s.Lock()
 	defer s.Unlock()
 
