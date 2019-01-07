@@ -55,12 +55,12 @@ func FetchFiles(client drive.Client) (inUse, obsolete []FoundFile, err error) {
 		}
 
 		if existing.file.ModifiedTime.After(file.ModifiedTime) {
-			glog.V(2).Infof("obsolete file: %x (%d < %d)", sha256sum, file.ModifiedTime.Unix(), existing.file.ModifiedTime.Unix())
+			glog.V(4).Infof("found obsolete file for %s (%x): %d < %d", file.Filename, sha256sum, existing.file.ModifiedTime.Unix(), file.ModifiedTime.Unix())
 			obsolete = append(obsolete, FoundFile{file, sha256sum})
 			continue
 		}
 		filesByPath[file.Filename] = FoundFile{file, sha256sum}
-		glog.V(2).Infof("obsolete file: %x (%d < %d)", existing.sum, file.ModifiedTime.Unix(), existing.file.ModifiedTime.Unix())
+		glog.V(4).Infof("file obsoleted existing file %s (%x): %d > %d", file.Filename, existing.sum, existing.file.ModifiedTime.Unix(), file.ModifiedTime.Unix())
 		obsolete = append(obsolete, FoundFile{existing.file, existing.sum})
 	}
 	inUse = make([]FoundFile, 0, len(filesByPath))
