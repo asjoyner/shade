@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -57,7 +58,6 @@ func TestFetchingFiles(t *testing.T) {
 	if len(obsolete) != 2 {
 		t.Errorf("obsolete files unexpected, want: 2, got %d", len(obsolete))
 	}
-
 }
 
 func TestRemovingOrphanedFiles(t *testing.T) {
@@ -80,15 +80,23 @@ func TestRemovingOrphanedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Put the original copy of the file in the client
+	// Push a version of the file with the current mtime
+	file.ModifiedTime = time.Now()
 	putFile(t, mc, *file)
 
+	// Push several versions of the file with a much older mtime
+	file.ModifiedTime = file.ModifiedTime.Add(-6 * time.Hour)
+	for x := 0; x < 5; x++ {
+		file.ModifiedTime = file.ModifiedTime.Add(1 * time.Minute)
+		putFile(t, mc, *file)
+	}
+
 	// Push a version of the file with a newer mtime
-	file.ModifiedTime = file.ModifiedTime.Add(1 * time.Minute)
+	file.ModifiedTime = time.Now().Add(1 * time.Minute)
 	putFile(t, mc, *file)
 
 	// Push an even newer version of the file that is deleted
-	file.ModifiedTime = file.ModifiedTime.Add(1 * time.Minute)
+	file.ModifiedTime = file.ModifiedTime.Add(6 * time.Minute)
 	file.Deleted = true
 	putFile(t, mc, *file)
 	putFile(t, expected, *file)
@@ -101,18 +109,21 @@ func TestRemovingOrphanedFiles(t *testing.T) {
 		t.Errorf("want: 'more files are obsolete', got: %s", err)
 	}
 
-	// Push another file (similar content) to satisfy the safety threshold
-	file.Filename = "testFile2"
-	putFile(t, mc, *file)
-	putFile(t, expected, *file)
+	// Push more files (similar content) to satisfy the safety threshold
+	for x := 2; x < 12; x++ {
+		file.Filename = fmt.Sprintf("testFile%d", x)
+		putFile(t, mc, *file)
+		putFile(t, expected, *file)
+	}
 	if err := Cleanup(mc); err != nil {
 		t.Error(err)
 	}
 
-	// assert the actual class types to be able to check the internals
-	if err := expected.(*memory.Drive).Equal(mc.(*memory.Drive)); err != nil {
+	expectedExtras, testClientExtras, err := compare.GetDelta(expected, mc)
+	if err != nil {
 		t.Fatal(err)
 	}
+	deltaErrors(t, expectedExtras, testClientExtras)
 }
 
 func TestRemovingOrphanedChunks(t *testing.T) {
@@ -289,5 +300,20 @@ func putFile(t *testing.T, client drive.Client, file shade.File) {
 	t.Logf("Putting file with sum: %x", sum)
 	if err := client.PutFile(sum, jm); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func deltaErrors(t *testing.T, expectedExtras, testClientExtras compare.Delta) {
+	for _, sum := range testClientExtras.Files {
+		t.Errorf("file was not cleaned up: %x", sum)
+	}
+	for _, sum := range testClientExtras.Chunks {
+		t.Errorf("chunk was not cleaned up: %x", sum)
+	}
+	for _, sum := range expectedExtras.Files {
+		t.Errorf("in-use file was deleted: %x", sum)
+	}
+	for _, sum := range expectedExtras.Chunks {
+		t.Errorf("in-use chunk was deleted: %x", sum)
 	}
 }
