@@ -1,15 +1,17 @@
 # shade
 
-shade (the SHA Drive Engine) stores files in the cloud, in a flexible fashion,
-optionally encrypted.
+shade (the SHA Drive Engine) stores files locally and/or in the cloud, in a
+flexible fashion, optionally encrypted.
 
 The primary interface is a FUSE filesystem for interacting with shade.  There
-is a command line tool "throw" which can cheaply add new files to shade, but
-cannot read the encrypted contents.  There is also a command line debugging
-tool, shadeutil, for investigating the contents.
+is a command line tool "throw" which can cheaply add new files to shade.  It
+can be configured such that it can add too the respository, but cannot read the
+encrypted contents.  There is also a command line debugging tool, shadeutil,
+for investigating and tinkering with the repository.
 
 ## The basic method of file storage
-  1. Represent the file as a series of chunks, of a configurable size (16MB by default).
+  1. Represent the file as a series of chunks, of a configurable size (16MB by
+     default).
   1. Calculate a SHA-256 hash for each chunk.
   1. Store the chunk in the configured Drive client
   1. Create a manifest file (a shade.File struct) with:
@@ -17,18 +19,21 @@ tool, shadeutil, for investigating the contents.
      * Chunk size
      * Indexed list of chunks
   1. Calculate a SHA-256 hash of the manifest.
-  1. Store the shade.File in 1 or more Drive implementations (just like Chunk, but retrievable separately).
+  1. Store the shade.File in 1 or more Drive implemgntations (just like Chunk,
+     but retrievable separately).
 
 ## Retrieving a file works much the same, just in reverse:
   1. Download all of the manifest files.
-  1. Find the filename which matches the request.
+  1. Find the filename with the latest ModifiedTime which matches the request.
   1. If necessary, decrypt the chunk(s).
 
 ## shade/drive Drive interface
 
 The Drive interface provides a way to store and retrieve two separate buckets
 of bytes, called Files and Chunks, each identified by their sha256sum.  It also
-provides a way to list the sha256sum of all known Files.
+provides a way to list the sha256sum of all known Files.  There is also an
+interface for iteratively listing the sums all the Chunks (potentially a much
+larger amount of data).
 
 The interface also provides a bit of metadata about the implementation, such as
 a name for identifying it, if it stores files persistently and/or remotely, and
@@ -68,3 +73,10 @@ NB: Encrypting the contents stored in Drive comes with two penalties:
   1. Modest CPU usage to encrypt/decrypt on the way in/out.
   1. The chunks of identical files will not be deduplicated.
 
+## Cleanup
+
+When files are modified or overwritten (functionally the same), the previous
+File manifest, and some (or all) of the Chunks of the previous File may be
+orphaned.  The umbrella package contains code for cleaning up these orphaned
+files and chunks.  You can invoke single passes of it with shadeutil.  A tool
+to do periodic cleanup is planned.
