@@ -41,7 +41,7 @@ func FetchFiles(client drive.Client) (inUse, obsolete []FoundFile, err error) {
 	for _, sha256sum := range files {
 		uniqueFiles[string(sha256sum)] = struct{}{}
 	}
-	glog.Infof("Deduplicated %d file(s) to %s unique files", len(files), len(uniqueFiles))
+	glog.Infof("Deduplicated %d file(s) to %d unique files", len(files), len(uniqueFiles))
 
 	for stringSum := range uniqueFiles {
 		sha256sum := []byte(stringSum)
