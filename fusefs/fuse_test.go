@@ -456,55 +456,55 @@ func TestApplyWrite(t *testing.T) {
 	}
 
 	testSet := []struct {
-		before map[int64]shade.Chunk
+		before []shade.Chunk
 		offset int64
 		data   []byte
 		after  map[int64][]byte
 	}{
 		{ // test 0
-			map[int64]shade.Chunk{},
+			[]shade.Chunk{},
 			0,
 			[]byte("yep"),
 			map[int64][]byte{0: []byte("yep")},
 		},
 		{ // test 1
-			map[int64]shade.Chunk{
-				0: {Index: 0, Sha256: posStringSum},
+			[]shade.Chunk{
+				{Index: 0, Sha256: posStringSum},
 			},
 			0,
 			[]byte("yep"),
 			map[int64][]byte{0: []byte("yep34567")},
 		},
 		{ // test 2, Example A
-			map[int64]shade.Chunk{
-				0: {Index: 0, Sha256: posStringSum},
+			[]shade.Chunk{
+				{Index: 0, Sha256: posStringSum},
 			},
 			0,
 			[]byte("onechunk"),
 			map[int64][]byte{0: []byte("onechunk")},
 		},
 		{ // test 3
-			map[int64]shade.Chunk{
-				0: {Index: 0, Sha256: posStringSum},
+			[]shade.Chunk{
+				{Index: 0, Sha256: posStringSum},
 			},
 			0,
 			[]byte("just1more"),
 			map[int64][]byte{0: []byte("just1mor"), 1: []byte("e")},
 		},
 		{ // test 4
-			map[int64]shade.Chunk{
-				0: {Index: 0, Sha256: posStringSum},
-				1: {Index: 0, Sha256: posStringSum},
+			[]shade.Chunk{
+				{Index: 0, Sha256: posStringSum},
+				{Index: 0, Sha256: posStringSum},
 			},
 			3,
 			[]byte("straddle"),
 			map[int64][]byte{0: []byte("012strad"), 1: []byte("dle34567")},
 		},
 		{ // test 5
-			map[int64]shade.Chunk{
-				0: {Index: 0, Sha256: posStringSum},
-				1: {Index: 0, Sha256: posStringSum},
-				2: {Index: 0, Sha256: posStringSum},
+			[]shade.Chunk{
+				{Index: 0, Sha256: posStringSum},
+				{Index: 0, Sha256: posStringSum},
+				{Index: 0, Sha256: posStringSum},
 			},
 			3,
 			[]byte("straddlethreechunks"),
@@ -515,11 +515,11 @@ func TestApplyWrite(t *testing.T) {
 		glog.Infof("test %d", i)
 		h := handle{
 			file: &shade.File{
+				Chunks:    ts.before,
 				Chunksize: 8,
 			},
-			chunks: ts.before,
-			dirty:  make(map[int64][]byte),
-			queue:  make(map[string]*sync.WaitGroup),
+			dirty: make(map[int64][]byte),
+			queue: make(map[string]*sync.WaitGroup),
 		}
 		if h.cache, err = lru.New(int(2)); err != nil {
 			t.Fatalf("initializing chunk lru: %s", err)

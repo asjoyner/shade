@@ -100,13 +100,12 @@ func New(client drive.Client, conn *fuse.Conn, refresh *time.Ticker) (*Server, e
 }
 
 type handle struct {
-	inode  fuse.NodeID
-	file   *shade.File
-	chunks map[int64]shade.Chunk      // obsoleted by cache; remove with care
-	dirty  map[int64][]byte           // chunks that have been written to
-	cache  *lru.Cache                 // cache of clean chunks
-	queue  map[string]*sync.WaitGroup // outstanding requests to fill cache
-	ql     sync.Mutex                 // guards access to queue
+	inode fuse.NodeID
+	file  *shade.File
+	dirty map[int64][]byte           // chunks that have been written to
+	cache *lru.Cache                 // cache of clean chunks
+	queue map[string]*sync.WaitGroup // outstanding requests to fill cache
+	ql    sync.Mutex                 // guards access to queue
 }
 
 // getChunk returns a shasum, using and updating the cache of chunks associated
@@ -143,17 +142,15 @@ func (h *handle) getChunk(client drive.Client, sha256sum []byte) ([]byte, error)
 
 // return the current bytes of a chunk
 // TODO: write a test for this
-// TODO: update to use h.cache via h.getChunk, drop incorrect
-//       usage of h.chunks
+// Nb: chunkNum starts at zero
 func (h *handle) chunkBytesForWrite(chunkNum int64, client drive.Client) ([]byte, error) {
 	if dirtyChunk, ok := h.dirty[chunkNum]; ok {
 		return dirtyChunk, nil
 	}
-	cleanChunk, ok := h.chunks[chunkNum]
-	if !ok { // no chunk data at this offset (yet)
+	if chunkNum >= int64(len(h.file.Chunks)) { // a new chunk past the last flushed chunk
 		return make([]byte, 0), nil
 	}
-	origChunk, err := h.getChunk(client, cleanChunk.Sha256)
+	origChunk, err := h.getChunk(client, h.file.Chunks[chunkNum].Sha256)
 	if err != nil {
 		return nil, err
 	}
