@@ -164,9 +164,9 @@ func (s *Drive) GetChunk(sha256sum []byte, f *shade.File) ([]byte, error) {
 			continue
 		}
 		for _, c := range s.clients {
-			if c.Local() && c != client {
+			if c.Local() {
 				glog.V(7).Infof("refreshing chunk %x", sha256sum)
-				client.PutChunk(sha256sum, chunk, f)
+				c.PutChunk(sha256sum, chunk, f)
 			}
 		}
 		return chunk, nil
