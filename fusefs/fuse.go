@@ -102,13 +102,11 @@ func New(client drive.Client, conn *fuse.Conn, refresh *time.Ticker) (*Server, e
 type handle struct {
 	inode  fuse.NodeID
 	file   *shade.File
-	chunks map[int64]shade.Chunk
-	dirty  map[int64][]byte
-	cache  *lru.Cache
-	// queue tracks outstanding requests to fill cache
-	queue map[string]*sync.WaitGroup
-	// ql controls access to queue
-	ql sync.Mutex
+	chunks map[int64]shade.Chunk      // obsoleted by cache; remove with care
+	dirty  map[int64][]byte           // chunks that have been written to
+	cache  *lru.Cache                 // cache of clean chunks
+	queue  map[string]*sync.WaitGroup // outstanding requests to fill cache
+	ql     sync.Mutex                 // guards access to queue
 }
 
 // getChunk returns a shasum, using and updating the cache of chunks associated
@@ -145,6 +143,8 @@ func (h *handle) getChunk(client drive.Client, sha256sum []byte) ([]byte, error)
 
 // return the current bytes of a chunk
 // TODO: write a test for this
+// TODO: update to use h.cache via h.getChunk, drop incorrect
+//       usage of h.chunks
 func (h *handle) chunkBytesForWrite(chunkNum int64, client drive.Client) ([]byte, error) {
 	if dirtyChunk, ok := h.dirty[chunkNum]; ok {
 		return dirtyChunk, nil
@@ -505,8 +505,8 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 	// and other attempts to identify the file don't cause unnecessary chunk
 	// prefetching.  To satisfy, we prefetch whenever the byte which is 10% of
 	// the chunksize is read.
+	lastChunkJustRead := chunkSums[len(chunkSums)-1]
 	if low < prefetchByte && high > prefetchByte {
-		lastChunkJustRead := chunkSums[len(chunkSums)-1]
 		var prefetchChunk int
 		for i, c := range f.Chunks {
 			if bytes.Equal(c.Sha256, lastChunkJustRead) {
@@ -520,7 +520,27 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 		cs := f.Chunks[prefetchChunk].Sha256
 		glog.V(4).Infof("Prefetching the next chunk: %x", cs)
 		h.getChunk(sc.client, cs)
+
+		// Let the Drive client know we're likely to read from the next several
+		// file chunks so it can do any necessary preparation.
+		var upcomingChunks [][]byte
+		for i, c := range f.Chunks {
+			if bytes.Equal(c.Sha256, lastChunkJustRead) {
+				curChunk := i
+				if (curChunk % 5) != 0 {
+					// .... but only ask every 5th chunk, to avoid having two or three
+					// requests trigger the cache refresh before the first query completes.
+					return
+				}
+				nc := len(f.Chunks)
+				for x := curChunk; x < curChunk+30 && x < nc; x++ {
+					upcomingChunks = append(upcomingChunks, f.Chunks[x].Sha256)
+				}
+			}
+		}
+		sc.client.Warm(upcomingChunks, f)
 	}
+
 }
 
 func (sc *Server) attrFromNode(node Node, i uint64) fuse.Attr {

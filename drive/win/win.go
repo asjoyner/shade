@@ -60,6 +60,11 @@ func (s *Drive) ReleaseChunk(sha256sum []byte) error {
 	return nil
 }
 
+// Warm is unnecessary for this client.
+func (s *Drive) Warm(chunks [][]byte, f *shade.File) {
+	return
+}
+
 // GetConfig returns an empty config.
 func (s *Drive) GetConfig() drive.Config {
 	return s.config

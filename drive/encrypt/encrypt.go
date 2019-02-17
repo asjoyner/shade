@@ -374,6 +374,25 @@ func Decrypt(ciphertext []byte, key *[32]byte) (plaintext []byte, err error) {
 	)
 }
 
+// Warm translates the upcoming chunk sums into their encrypted sums, and
+// passes them along the child client.
+func (s *Drive) Warm(chunks [][]byte, f *shade.File) {
+	if f == nil {
+		glog.Errorf("provide a file pointer to Warm encrypted chunks")
+	}
+
+	var encryptedSums [][]byte
+	for _, sum := range chunks {
+		es, err := GetEncryptedSum(sum, f)
+		if err != nil {
+			glog.Errorf("encrypting sum %x: %s", sum, err)
+		}
+		encryptedSums = append(encryptedSums, es)
+	}
+	s.client.Warm(encryptedSums, f)
+	return
+}
+
 // GetConfig returns the config used to initialize this client.
 func (s *Drive) GetConfig() drive.Config {
 	return s.config

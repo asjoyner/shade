@@ -228,6 +228,11 @@ func (s *Drive) ReleaseChunk(sha256sum []byte) error {
 	return nil
 }
 
+// Warm would be a useful optimization here...
+func (s *Drive) Warm(chunks [][]byte, f *shade.File) {
+	return
+}
+
 // GetConfig returns the Drive's associated Config object.
 func (s *Drive) GetConfig() drive.Config {
 	return s.config

@@ -220,6 +220,16 @@ func (s *Drive) ReleaseChunk(sha256sum []byte) error {
 	return nil
 }
 
+// Warm is passed along to each client that is not Local().
+func (s *Drive) Warm(chunks [][]byte, f *shade.File) {
+	for _, c := range s.clients {
+		if !c.Local() {
+			c.Warm(chunks, f)
+		}
+	}
+	return
+}
+
 // GetConfig returns the config used to initialize this client.
 func (s *Drive) GetConfig() drive.Config {
 	return s.config

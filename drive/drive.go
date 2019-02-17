@@ -53,6 +53,11 @@ type Client interface {
 	// The chunk is not required to be deleted by the client.
 	ReleaseChunk(sha256 []byte) error
 
+	// Warm is an optional hint to clients that the supplied chunks might be
+	// fetched soon.  This helps batch up metadata queries for remote clients, to
+	// reduce their latency impact.  Most local clients can return nil.
+	Warm(chunks [][]byte, file *shade.File)
+
 	// GetConfig returns the drive.Config object used to initialize this client.
 	// This is mostly helpful for debugging, to identify which Provider it is.
 	GetConfig() Config

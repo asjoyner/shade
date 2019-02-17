@@ -32,9 +32,11 @@ import (
 	"expvar"
 	"fmt"
 	"io/ioutil"
+	"strings"
 	"time"
 
 	"github.com/golang/glog"
+	lru "github.com/hashicorp/golang-lru"
 
 	gdrive "google.golang.org/api/drive/v3"
 	"google.golang.org/api/googleapi"
@@ -64,17 +66,22 @@ func init() {
 // NewClient returns a new Drive client.
 func NewClient(c drive.Config) (drive.Client, error) {
 	client := GetOAuthClient(c)
+	l, err := lru.New(10000)
+	if err != nil {
+		return nil, err
+	}
 	service, err := gdrive.New(client)
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve Google Drive Client: %v", err)
 	}
-	return &Drive{service: service, config: c}, nil
+	return &Drive{service: service, config: c, files: l}, nil
 }
 
 // Drive represents access to the Google Drive storage system.
 type Drive struct {
 	service *gdrive.Service
 	config  drive.Config
+	files   *lru.Cache
 }
 
 // ListFiles retrieves all of the File objects known to the client, and returns
@@ -167,7 +174,7 @@ func (s *Drive) ReleaseFile(sha256sum []byte) error {
 }
 
 // GetChunk retrieves a chunk with a given SHA-256 sum.
-func (s *Drive) GetChunk(sha256sum []byte, _ *shade.File) ([]byte, error) {
+func (s *Drive) GetChunk(sha256sum []byte, file *shade.File) ([]byte, error) {
 	getChunkReq.Add(1)
 	return s.retrieve(sha256sum)
 }
@@ -238,6 +245,9 @@ func (s *Drive) retrieve(sha256sum []byte) ([]byte, error) {
 // sha256sum).  The file.Id is a necessary precondition for several API calls,
 // such as Get and Delete.
 func (s *Drive) fileBySum(sha256sum []byte) (*gdrive.File, error) {
+	if f, ok := s.files.Get(string(sha256sum)); ok {
+		return f.(*gdrive.File), nil
+	}
 	ctx := context.TODO() // TODO(cfunkhouser): Get a meaningful context here.
 	q := fmt.Sprintf("name = '%x'", sha256sum)
 	if s.config.FileParentID != "" {
@@ -315,6 +325,56 @@ func (s *Drive) PutChunk(sha256sum, content []byte, f *shade.File) error {
 		return fmt.Errorf("couldn't create file: %v", err)
 	}
 	return nil
+}
+
+// Warm caches the Google file objects for the supplied chunks.  This saves
+// latency by batching the request, and avoiding the need to fetch them
+// sequentially while streaming.
+func (s *Drive) Warm(chunks [][]byte, f *shade.File) {
+	glog.V(6).Infof("Warm request for %d chunks of %s", len(chunks), f.Filename)
+	var files []string
+	for i, c := range chunks {
+		if _, ok := s.files.Get(string(c)); ok {
+			continue
+		}
+		files = append(files, fmt.Sprintf("name = '%x'", c))
+		if i >= 30 {
+			break // don't bother to cache more than 30 chunks in advance
+		}
+	}
+	if len(files) < 20 {
+		return // wait until we can batch at least 20 chunk file requests
+	}
+
+	glog.V(6).Infof("Preloading %d chunk files.", len(files))
+	q := strings.Join(files, " or ")
+
+	if s.config.ChunkParentID != "" {
+		q = fmt.Sprintf("%s and ('%s' in parents )", q, s.config.ChunkParentID)
+	}
+	glog.V(6).Info("Query: ", q)
+	ctx := context.Background()
+	req := s.service.Files.List()
+	req = req.Context(ctx).Q(q).Fields("files(id, name, properties, size)")
+	req = req.SupportsTeamDrives(true).IncludeTeamDriveItems(true)
+	req = req.Corpora("user,allTeamDrives")
+	resp, err := req.Do()
+	if err != nil {
+		listError.Add(1)
+		glog.Warningf("Warm failed: %v", err)
+		return
+	}
+	glog.V(6).Infof("chunks matched: %d", len(resp.Files))
+	for _, f := range resp.Files {
+		b, err := hex.DecodeString(f.Name)
+		if err != nil {
+			glog.V(6).Infof("Could not decode filename: %s", err)
+			continue
+		}
+		glog.V(6).Infof("Adding %x to the file cache", b)
+		s.files.Add(string(b), f)
+	}
+	return
 }
 
 // GetConfig returns the associated drive.Config object.

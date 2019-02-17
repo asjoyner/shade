@@ -164,6 +164,11 @@ func (s *Drive) decrement(key interface{}, value interface{}) {
 	s.wg.Done()
 }
 
+// Warm is unnecessary for this client.
+func (s *Drive) Warm(chunks [][]byte, f *shade.File) {
+	return
+}
+
 // GetConfig returns the config used to initialize this client.
 func (s *Drive) GetConfig() drive.Config {
 	return s.config
