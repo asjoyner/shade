@@ -537,7 +537,7 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 			cs := f.Chunks[x].Sha256
 			glog.V(4).Infof("Prefetching chunk %d: %x", x, cs)
 			// TODO: make this a pool of workers, maybe per-handle?
-			go func() h.prefetchChunk(sc.client, cs) }()
+			go func() { h.prefetchChunk(sc.client, cs) }()
 		}
 
 		// Let the Drive client know we're likely to read from the next several
