@@ -57,7 +57,7 @@ var (
 	// To keep sequential reads from consuming a lot of CPU doing memory copies,
 	// there should be room in the LRU for the current chunk, and the next
 	// (prefetched) chunk.
-	chunksPerHandle = 3
+	chunksPerHandle = 6
 
 	blockSize uint32 = 4096
 )
@@ -103,7 +103,7 @@ type handle struct {
 	inode fuse.NodeID
 	file  *shade.File
 	dirty map[int64][]byte           // chunks that have been written to
-	cache *lru.Cache                 // cache of clean chunks
+	cache *lru.Cache                 // a cache of clean chunks
 	queue map[string]*sync.WaitGroup // outstanding requests to fill cache
 	ql    sync.Mutex                 // guards access to queue
 }
@@ -111,6 +111,18 @@ type handle struct {
 // getChunk returns a shasum, using and updating the cache of chunks associated
 // with the open handle.  It also takes care to de-duplicate concurrent reads.
 func (h *handle) getChunk(client drive.Client, sha256sum []byte) ([]byte, error) {
+	return h.getChunkImpl(client, sha256sum, true)
+}
+
+// prefetchChunk is a non-blocking getChunk.  It will do the work if no one else
+// is, but if another goroutine is already fetching this chunk it returns nil
+// data and nil error immediately.
+func (h *handle) prefetchChunk(client drive.Client, sha256sum []byte) ([]byte, error) {
+	return h.getChunkImpl(client, sha256sum, false)
+}
+
+// getChunkImpl implements the internals of both getChunk and enqueue.
+func (h *handle) getChunkImpl(client drive.Client, sha256sum []byte, block bool) ([]byte, error) {
 	if cb, ok := h.cache.Get(string(sha256sum)); ok {
 		return cb.([]byte), nil
 	}
@@ -118,6 +130,10 @@ func (h *handle) getChunk(client drive.Client, sha256sum []byte) ([]byte, error)
 	wg, ok := h.queue[string(sha256sum)]
 	if ok {
 		h.ql.Unlock()
+		if !block {
+			glog.V(4).Infof("This is already in flight: %x", sha256sum)
+			return nil, nil
+		}
 		wg.Wait()
 		cb, ok := h.cache.Get(string(sha256sum))
 		if !ok {
@@ -467,6 +483,7 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 	for _, cs := range chunkSums {
 		cb, err := h.getChunk(sc.client, cs)
 		if err != nil {
+			glog.Errorf("reading chunk %x: %s", cs, err)
 			req.RespondError(fuse.EIO)
 			return
 		}
@@ -514,9 +531,14 @@ func (sc *Server) read(req *fuse.ReadRequest) {
 			glog.V(3).Info("There is no next chunk to prefetch.")
 			return
 		}
-		cs := f.Chunks[prefetchChunk].Sha256
-		glog.V(4).Infof("Prefetching the next chunk: %x", cs)
-		h.getChunk(sc.client, cs)
+		maxPrefetch := (chunksPerHandle * 3 / 4) - 1
+		for x := prefetchChunk; x < prefetchChunk+maxPrefetch && x < len(f.Chunks); x++ {
+			glog.V(4).Infof("Discovery prefetch chunk %d", x)
+			cs := f.Chunks[x].Sha256
+			glog.V(4).Infof("Prefetching chunk %d: %x", x, cs)
+			// TODO: make this a pool of workers, maybe per-handle?
+			go func() h.prefetchChunk(sc.client, cs) }()
+		}
 
 		// Let the Drive client know we're likely to read from the next several
 		// file chunks so it can do any necessary preparation.
