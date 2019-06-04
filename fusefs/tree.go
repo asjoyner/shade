@@ -232,7 +232,7 @@ func (t *Tree) Refresh() error {
 			continue
 		}
 		node := Node{
-			Filename:     file.Filename,
+			Filename:     path.Clean(file.Filename),
 			Filesize:     file.Filesize,
 			ModifiedTime: file.ModifiedTime,
 			Deleted:      file.Deleted,
