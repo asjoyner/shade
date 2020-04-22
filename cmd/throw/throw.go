@@ -120,6 +120,14 @@ func main() {
 		os.Exit(3)
 	}
 
+	fi, err := os.Stat(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		glog.Flush()
+		os.Exit(4)
+	}
+	aproxChunks := fi.Size() / int64(manifest.Chunksize)
+
 	var rt runtime.MemStats
 	for {
 		// Initialize chunk, to ensure each chunk uses a unique nonce
@@ -135,7 +143,7 @@ func main() {
 		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", err)
 			glog.Flush()
-			os.Exit(3)
+			os.Exit(5)
 		} else if len(manifest.Chunks) >= *maxChunks {
 			glog.Info("Reached the maximum number of chunks in a single file.")
 			break
@@ -156,7 +164,7 @@ func main() {
 		if glog.V(3) {
 			if (len(manifest.Chunks) % 10) == 0 {
 				runtime.ReadMemStats(&rt)
-				glog.Infof("%d chunks: %0.2f MBytes Heap, %0.2f MBytes Sys\n", len(manifest.Chunks), float64(rt.Alloc)/1024/1024, float64(rt.Sys)/1024/1024)
+				glog.Infof("%d/%d chunks: %0.2f MBytes Heap, %0.2f MBytes Sys\n", len(manifest.Chunks), aproxChunks, float64(rt.Alloc)/1024/1024, float64(rt.Sys)/1024/1024)
 
 				if glog.V(9) {
 					f, err := os.Create("/tmp/throw.mprof")
@@ -178,14 +186,14 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not marshal file manifest: %s\n", err)
 		glog.Flush()
-		os.Exit(1)
+		os.Exit(6)
 	}
 	// upload the manifest
 	a := sha256.Sum256(jm)
 	if err := client.PutFile(a[:], jm); err != nil {
 		fmt.Fprintf(os.Stderr, "manifest upload failed: %s\n", err)
 		glog.Flush()
-		os.Exit(1)
+		os.Exit(7)
 	}
 
 	elapsed := time.Since(start)
